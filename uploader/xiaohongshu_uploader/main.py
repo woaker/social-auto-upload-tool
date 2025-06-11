@@ -64,7 +64,7 @@ async def xiaohongshu_cookie_gen(account_file):
 
 
 class XiaoHongShuVideo(object):
-    def __init__(self, title, file_path, tags, publish_date: datetime, account_file, thumbnail_path=None):
+    def __init__(self, title, file_path, tags, publish_date: datetime, account_file, thumbnail_path=None, location="北京市"):
         self.title = title  # 视频标题
         self.file_path = file_path
         self.tags = tags
@@ -73,6 +73,7 @@ class XiaoHongShuVideo(object):
         self.date_format = '%Y年%m月%d日 %H:%M'
         self.local_executable_path = LOCAL_CHROME_PATH
         self.thumbnail_path = thumbnail_path
+        self.location = location  # 地理位置
 
     async def set_schedule_time_xiaohongshu(self, page, publish_date):
         print("  [-] 正在设置定时发布时间...")
@@ -202,8 +203,8 @@ class XiaoHongShuVideo(object):
         # 上传视频封面
         # await self.set_thumbnail(page, self.thumbnail_path)
 
-        # 更换可见元素
-        # await self.set_location(page, "青岛市")
+        # 设置地理位置为固定值
+        await self.set_location(page, self.location)
 
         # # 頭條/西瓜
         # third_part_element = '[class^="info"] > [class^="first-part"] div div.semi-switch'
