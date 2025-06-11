@@ -73,6 +73,7 @@ class DouYinVideo(object):
         self.date_format = '%Y年%m月%d日 %H:%M'
         self.local_executable_path = LOCAL_CHROME_PATH
         self.thumbnail_path = thumbnail_path
+        self.default_location = "北京市"  # 默认地理位置
 
     async def set_schedule_time_douyin(self, page, publish_date):
         # 选择包含特定文本内容的 label 元素
@@ -180,7 +181,7 @@ class DouYinVideo(object):
         await self.set_thumbnail(page, self.thumbnail_path)
 
         # 更换可见元素
-        await self.set_location(page, "杭州市")
+        await self.set_location(page, self.default_location)
 
         # 頭條/西瓜
         third_part_element = '[class^="info"] > [class^="first-part"] div div.semi-switch'
@@ -231,16 +232,38 @@ class DouYinVideo(object):
             #     await finish_confirm_element.click()
             # await page.locator("div[class^='footer'] button:has-text('完成')").click()
 
-    async def set_location(self, page: Page, location: str = "杭州市"):
-        # todo supoort location later
-        # await page.get_by_text('添加标签').locator("..").locator("..").locator("xpath=following-sibling::div").locator(
-        #     "div.semi-select-single").nth(0).click()
-        await page.locator('div.semi-select span:has-text("输入地理位置")').click()
-        await page.keyboard.press("Backspace")
-        await page.wait_for_timeout(2000)
-        await page.keyboard.type(location)
-        await page.wait_for_selector('div[role="listbox"] [role="option"]', timeout=5000)
-        await page.locator('div[role="listbox"] [role="option"]').first.click()
+    async def set_location(self, page: Page, location: str = "北京市"):
+        """设置地理位置，如果失败则跳过"""
+        try:
+            douyin_logger.info(f"  [-] 正在设置地理位置: {location}")
+            
+            # 检查地理位置选择器是否存在
+            location_selector = 'div.semi-select span:has-text("输入地理位置")'
+            location_element = page.locator(location_selector)
+            
+            # 等待元素出现，设置较短的超时时间
+            await location_element.wait_for(timeout=10000)
+            
+            # 点击地理位置输入框
+            await location_element.click()
+            await page.keyboard.press("Backspace")
+            await page.wait_for_timeout(2000)
+            
+            # 输入地理位置
+            await page.keyboard.type(location)
+            
+            # 等待下拉选项出现
+            await page.wait_for_selector('div[role="listbox"] [role="option"]', timeout=5000)
+            
+            # 选择第一个选项
+            await page.locator('div[role="listbox"] [role="option"]').first.click()
+            
+            douyin_logger.success(f"  [-] 地理位置设置成功: {location}")
+            
+        except Exception as e:
+            douyin_logger.warning(f"  [-] 地理位置设置失败，跳过此步骤: {str(e)}")
+            douyin_logger.info("  [-] 地理位置不是必需的，继续发布流程...")
+            # 不抛出异常，继续执行后续流程
 
     async def main(self):
         async with async_playwright() as playwright:
