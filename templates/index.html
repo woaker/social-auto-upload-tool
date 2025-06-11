@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Social Auto Upload</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .status {
+            text-align: center;
+            font-size: 18px;
+            color: #28a745;
+        }
+        .info {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Social Auto Upload Backend</h1>
+        <div class="status">✅ 后端服务已成功启动</div>
+        <div class="info">
+            <h3>API 接口说明：</h3>
+            <ul>
+                <li><code>POST /upload</code> - 上传文件</li>
+                <li><code>POST /uploadSave</code> - 上传并保存文件记录</li>
+                <li><code>GET /getFiles</code> - 获取所有文件列表</li>
+                <li><code>GET /getValidAccounts</code> - 获取有效账号</li>
+                <li><code>POST /postVideo</code> - 发布视频</li>
+                <li><code>POST /postVideoBatch</code> - 批量发布视频</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html> 

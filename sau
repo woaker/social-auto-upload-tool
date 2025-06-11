@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# Social Auto Upload 快捷命令
+# 使用方法: ./sau [命令]
+
+case "${1:-help}" in
+    "start"|"s")
+        ./start_project.sh start
+        ;;
+    "stop")
+        ./start_project.sh stop
+        ;;
+    "restart"|"r")
+        ./start_project.sh restart
+        ;;
+    "status"|"st")
+        ./start_project.sh status
+        ;;
+    "logs"|"log"|"l")
+        ./start_project.sh logs "${2:-all}"
+        ;;
+    "quick"|"q")
+        ./quick_start.sh
+        ;;
+    "help"|"h"|*)
+        echo "🚀 Social Auto Upload 快捷命令"
+        echo ""
+        echo "用法: ./sau [命令]"
+        echo ""
+        echo "命令:"
+        echo "  start, s       启动项目"
+        echo "  stop           停止项目"
+        echo "  restart, r     重启项目"
+        echo "  status, st     查看状态"
+        echo "  logs, l        查看日志"
+        echo "  quick, q       快速启动"
+        echo "  help, h        显示帮助"
+        echo ""
+        echo "示例:"
+        echo "  ./sau start    # 启动项目"
+        echo "  ./sau stop     # 停止项目"
+        echo "  ./sau status   # 查看状态"
+        echo "  ./sau logs     # 查看日志"
+        echo "  ./sau quick    # 快速启动"
+        ;;
+esac 
