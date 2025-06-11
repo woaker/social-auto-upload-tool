@@ -339,7 +339,7 @@ class BatchUploader:
                 else:
                     print(f"   发布方式: 立即发布")
                 
-                app = XiaoHongShuVideo(title, file, tags, publish_datetimes[index], account_file)
+                app = XiaoHongShuVideo(title, file, tags, publish_datetimes[index], account_file, location="北京市")
                 await app.main()
                 
                 print(f"✅ {file.name} 上传成功")

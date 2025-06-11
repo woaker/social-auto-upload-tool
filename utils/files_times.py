@@ -22,18 +22,38 @@ def get_title_and_hashtags(filename):
   Returns:
     视频标题和 hashtag 列表
   """
+    import os
+    
+    # 获取视频文件的目录路径
+    video_dir = os.path.dirname(filename)
+    
+    # 优先查找与视频文件同名的txt文件（视频文件里面的标题）
+    tags_file = filename.replace(".mp4", ".txt")
+    
+    # 如果同名txt文件不存在，则查找同级目录下的"标签.txt"文件
+    if not os.path.exists(tags_file):
+        tags_file = os.path.join(video_dir, "标签.txt")
+    
+    # 如果都不存在，抛出异常
+    if not os.path.exists(tags_file):
+        raise FileNotFoundError(f"未找到标签文件: {tags_file}")
 
-    # 获取视频标题和 hashtag txt 文件名
-    txt_filename = filename.replace(".mp4", ".txt")
-
+    print(f"正在读取标签文件: {tags_file}")
+    
     # 读取 txt 文件
-    with open(txt_filename, "r", encoding="utf-8") as f:
+    with open(tags_file, "r", encoding="utf-8") as f:
         content = f.read()
 
     # 获取标题和 hashtag
     splite_str = content.strip().split("\n")
     title = splite_str[0]
-    hashtags = splite_str[1].replace("#", "").split(" ")
+    
+    # 处理第二行的标签
+    if len(splite_str) > 1:
+        # 移除#号并按空格分割，过滤空字符串
+        hashtags = [tag.strip() for tag in splite_str[1].replace("#", "").split(" ") if tag.strip()]
+    else:
+        hashtags = []
 
     return title, hashtags
 
