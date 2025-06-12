@@ -1,0 +1,19 @@
+# 视频URL列表示例文件
+# 每行一个URL，以 # 开头的行将被忽略
+
+# YouTube 视频示例
+# https://www.youtube.com/watch?v=dQw4w9WgXcQ
+
+# Bilibili 视频示例
+# https://www.bilibili.com/video/BV1GJ411x7h7
+
+# 其他平台示例
+# https://vimeo.com/123456789
+
+# 使用说明:
+# 1. 删除或注释掉不需要的URL
+# 2. 添加您要下载的实际视频URL
+# 3. 运行命令: python batch_video_downloader.py -f video_urls_example.txt -d ./videoFile/2025-06-09
+
+https://www.instagram.com/reel/DIGoQ8tNDcH/?igsh=c2lnYXUxcXY3MjB3
+https://www.instagram.com/reel/DDpCocgJE-W/?igsh=MTNhYzFjdHhxZWppMQ==
