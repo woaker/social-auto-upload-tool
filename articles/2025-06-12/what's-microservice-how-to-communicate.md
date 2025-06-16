@@ -144,7 +144,7 @@ public class RPCServer {
     private static ExecutorService executor = Executors.newFixedThreadPool(
         Runtime.getRuntime().availableProcessors()
     );
-    
+
     private static final ConcurrentHashMap<String, Class> serviceRegister = 
         new ConcurrentHashMap<>();
 
@@ -278,35 +278,35 @@ public class RPCClient<T> {
             this.addr = addr;
         }
 
-        @Override
-        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-            Socket socket = null;
+            @Override
+            public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                Socket socket = null;
             ObjectOutputStream output = null;
-            ObjectInputStream input = null;
+                ObjectInputStream input = null;
             
-            try {
+                try {
                 // 建立连接
-                socket = new Socket();
-                socket.connect(addr);
-                
+                    socket = new Socket();
+                    socket.connect(addr);
+
                 // 发送调用信息
                 output = new ObjectOutputStream(socket.getOutputStream());
                 output.writeUTF(service.getSimpleName());
                 output.writeUTF(method.getName());
                 output.writeObject(method.getParameterTypes());
                 output.writeObject(args);
-                
+
                 // 接收返回结果
-                input = new ObjectInputStream(socket.getInputStream());
-                return input.readObject();
+                    input = new ObjectInputStream(socket.getInputStream());
+                    return input.readObject();
                 
-            } finally {
+                } finally {
                 // 关闭资源
                 if (socket != null) socket.close();
                 if (output != null) output.close();
                 if (input != null) input.close();
+                }
             }
-        }
     }
 }
 ```
@@ -358,7 +358,7 @@ public class OrderService {
             "order.created", 
             order
         );
-    }
+}
 }
 ```
 
