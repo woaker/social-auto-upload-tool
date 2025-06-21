@@ -141,8 +141,15 @@ class BatchUploader:
         return True
     
     def get_video_files(self):
-        """获取指定日期目录下的所有视频文件"""
-        video_files = list(self.video_dir.glob("*.mp4"))
+        """获取指定日期目录下的所有视频文件，支持多种格式"""
+        # 支持的视频格式
+        video_extensions = ["*.mp4", "*.webm", "*.avi", "*.mov", "*.mkv", "*.flv"]
+        video_files = []
+        
+        # 收集所有支持格式的视频文件
+        for ext in video_extensions:
+            video_files.extend(list(self.video_dir.glob(ext)))
+        
         if not video_files:
             print(f"❌ 在目录 {self.video_dir} 中没有找到视频文件")
             return []
