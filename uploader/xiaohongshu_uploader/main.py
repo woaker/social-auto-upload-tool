@@ -164,16 +164,22 @@ class XiaoHongShuVideo(object):
         # 这里为了避免页面变化，故使用相对位置定位：作品标题父级右侧第一个元素的input子元素
         await asyncio.sleep(1)
         xiaohongshu_logger.info(f'  [-] 正在填充标题和话题...')
+        
+        # 小红书标题长度限制为20个字符，超出则自动截取
+        truncated_title = self.title[:20] if len(self.title) > 20 else self.title
+        if len(self.title) > 20:
+            xiaohongshu_logger.info(f'  [-] 标题长度超过20字符，已自动截取: {self.title} -> {truncated_title}')
+        
         title_container = page.locator('div.input.titleInput').locator('input.d-text')
         if await title_container.count():
-            await title_container.fill(self.title[:30])
+            await title_container.fill(truncated_title)
         else:
             titlecontainer = page.locator(".notranslate")
             await titlecontainer.click()
             await page.keyboard.press("Backspace")
             await page.keyboard.press("Control+KeyA")
             await page.keyboard.press("Delete")
-            await page.keyboard.type(self.title)
+            await page.keyboard.type(truncated_title)
             await page.keyboard.press("Enter")
         css_selector = ".ql-editor" # 不能加上 .ql-blank 属性，这样只能获取第一次非空状态
         for index, tag in enumerate(self.tags, start=1):

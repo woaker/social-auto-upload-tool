@@ -183,13 +183,25 @@ class DouYinVideo(object):
         # 更换可见元素
         await self.set_location(page, self.default_location)
 
-        # 頭條/西瓜
-        third_part_element = '[class^="info"] > [class^="first-part"] div div.semi-switch'
-        # 定位是否有第三方平台
-        if await page.locator(third_part_element).count():
-            # 检测是否是已选中状态
-            if 'semi-switch-checked' not in await page.eval_on_selector(third_part_element, 'div => div.className'):
-                await page.locator(third_part_element).locator('input.semi-switch-native-control').click()
+        # 頭條/西瓜 - 自动同步到头条
+        douyin_logger.info('  [-] 正在设置自动同步到头条...')
+        try:
+            third_part_element = '[class^="info"] > [class^="first-part"] div div.semi-switch'
+            # 定位是否有第三方平台
+            if await page.locator(third_part_element).count():
+                # 检测是否是已选中状态
+                switch_element = page.locator(third_part_element)
+                switch_class = await switch_element.get_attribute('class')
+                
+                if 'semi-switch-checked' not in switch_class:
+                    await page.locator(third_part_element).locator('input.semi-switch-native-control').click()
+                    douyin_logger.success('  [-] 已开启自动同步到头条')
+                else:
+                    douyin_logger.info('  [-] 自动同步到头条已开启')
+            else:
+                douyin_logger.warning('  [-] 未找到头条同步选项，可能页面结构已变化')
+        except Exception as e:
+            douyin_logger.warning(f'  [-] 设置头条同步失败: {str(e)}，继续发布流程...')
 
         if self.publish_date != 0:
             await self.set_schedule_time_douyin(page, self.publish_date)
