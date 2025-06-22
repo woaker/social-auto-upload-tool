@@ -184,24 +184,7 @@ class DouYinVideo(object):
         await self.set_location(page, self.default_location)
 
         # 頭條/西瓜 - 自动同步到头条
-        douyin_logger.info('  [-] 正在设置自动同步到头条...')
-        try:
-            third_part_element = '[class^="info"] > [class^="first-part"] div div.semi-switch'
-            # 定位是否有第三方平台
-            if await page.locator(third_part_element).count():
-                # 检测是否是已选中状态
-                switch_element = page.locator(third_part_element)
-                switch_class = await switch_element.get_attribute('class')
-                
-                if 'semi-switch-checked' not in switch_class:
-                    await page.locator(third_part_element).locator('input.semi-switch-native-control').click()
-                    douyin_logger.success('  [-] 已开启自动同步到头条')
-                else:
-                    douyin_logger.info('  [-] 自动同步到头条已开启')
-            else:
-                douyin_logger.warning('  [-] 未找到头条同步选项，可能页面结构已变化')
-        except Exception as e:
-            douyin_logger.warning(f'  [-] 设置头条同步失败: {str(e)}，继续发布流程...')
+        await self.set_toutiao_sync(page)
 
         if self.publish_date != 0:
             await self.set_schedule_time_douyin(page, self.publish_date)
@@ -276,6 +259,153 @@ class DouYinVideo(object):
             douyin_logger.warning(f"  [-] 地理位置设置失败，跳过此步骤: {str(e)}")
             douyin_logger.info("  [-] 地理位置不是必需的，继续发布流程...")
             # 不抛出异常，继续执行后续流程
+
+    async def set_toutiao_sync(self, page: Page):
+        """设置自动同步到头条，尝试多种选择器"""
+        douyin_logger.info('  [-] 正在设置自动同步到头条...')
+        
+        # 多种可能的选择器
+        selectors = [
+            # 原始选择器
+            '[class^="info"] > [class^="first-part"] div div.semi-switch',
+            # 更通用的选择器
+            'div.semi-switch',
+            # 通过文本查找
+            'span:has-text("头条") + div .semi-switch',
+            'span:has-text("今日头条") + div .semi-switch', 
+            'span:has-text("西瓜视频") + div .semi-switch',
+            # 通过类名查找
+            'div[class*="third-part"] .semi-switch',
+            'div[class*="platform"] .semi-switch',
+            # xpath方式
+            '//span[contains(text(), "头条") or contains(text(), "西瓜")]/following-sibling::div//div[contains(@class, "semi-switch")]',
+            '//div[contains(@class, "semi-switch") and ./ancestor::*[contains(., "头条") or contains(., "西瓜")]]'
+        ]
+        
+        try:
+            # 等待页面加载完成
+            await asyncio.sleep(2)
+            
+            # 截图用于调试
+            douyin_logger.info('  [-] 截图保存当前页面状态...')
+            await page.screenshot(path="douyin_toutiao_sync_debug.png", full_page=True)
+            
+            switch_found = False
+            
+            # 尝试每个选择器
+            for i, selector in enumerate(selectors):
+                try:
+                    douyin_logger.info(f'  [-] 尝试选择器 {i+1}: {selector}')
+                    
+                    if selector.startswith('//'):
+                        # xpath选择器
+                        elements = await page.locator(f'xpath={selector}').all()
+                    else:
+                        # css选择器
+                        elements = await page.locator(selector).all()
+                    
+                    if elements:
+                        douyin_logger.info(f'  [-] 找到 {len(elements)} 个匹配的开关元素')
+                        
+                        for j, element in enumerate(elements):
+                            try:
+                                # 检查是否可见
+                                is_visible = await element.is_visible()
+                                if not is_visible:
+                                    douyin_logger.info(f'  [-] 开关 {j+1} 不可见，跳过')
+                                    continue
+                                
+                                # 获取开关状态
+                                switch_class = await element.get_attribute('class')
+                                is_checked = 'semi-switch-checked' in (switch_class or '')
+                                
+                                douyin_logger.info(f'  [-] 开关 {j+1} 状态: {"已开启" if is_checked else "未开启"}')
+                                
+                                # 如果未开启，则点击开启
+                                if not is_checked:
+                                    # 尝试点击开关本身
+                                    try:
+                                        await element.click()
+                                        douyin_logger.success('  [-] 成功点击开关开启头条同步')
+                                        switch_found = True
+                                        break
+                                    except:
+                                        # 尝试点击内部的input元素
+                                        try:
+                                            input_element = element.locator('input.semi-switch-native-control')
+                                            if await input_element.count():
+                                                await input_element.click()
+                                                douyin_logger.success('  [-] 成功通过input开启头条同步')
+                                                switch_found = True
+                                                break
+                                        except:
+                                            pass
+                                else:
+                                    douyin_logger.info('  [-] 头条同步已经开启')
+                                    switch_found = True
+                                    break
+                                    
+                            except Exception as e:
+                                douyin_logger.warning(f'  [-] 处理开关 {j+1} 时出错: {e}')
+                                continue
+                        
+                        if switch_found:
+                            break
+                            
+                except Exception as e:
+                    douyin_logger.warning(f'  [-] 选择器 {i+1} 失败: {e}')
+                    continue
+            
+            if not switch_found:
+                # 尝试通过文本内容查找
+                douyin_logger.info('  [-] 尝试通过文本内容查找头条同步选项...')
+                
+                # 查找包含"头条"或"西瓜"的文本
+                text_patterns = ["头条", "今日头条", "西瓜视频", "西瓜"]
+                
+                for pattern in text_patterns:
+                    try:
+                        text_elements = await page.get_by_text(pattern).all()
+                        for text_element in text_elements:
+                            try:
+                                # 查找附近的开关
+                                parent = text_element.locator('..')
+                                switches = await parent.locator('.semi-switch').all()
+                                
+                                if switches:
+                                    switch = switches[0]
+                                    switch_class = await switch.get_attribute('class')
+                                    is_checked = 'semi-switch-checked' in (switch_class or '')
+                                    
+                                    if not is_checked:
+                                        await switch.click()
+                                        douyin_logger.success(f'  [-] 通过文本"{pattern}"找到并开启头条同步')
+                                        switch_found = True
+                                        break
+                                    else:
+                                        douyin_logger.info(f'  [-] 通过文本"{pattern}"找到头条同步，已开启')
+                                        switch_found = True
+                                        break
+                            except:
+                                continue
+                        
+                        if switch_found:
+                            break
+                            
+                    except:
+                        continue
+            
+            if not switch_found:
+                douyin_logger.warning('  [-] 未找到头条同步选项，可能页面结构已变化或账号不支持此功能')
+                douyin_logger.info('  [-] 请手动检查页面是否有头条同步开关')
+            else:
+                # 等待一下确保设置生效
+                await asyncio.sleep(1)
+                douyin_logger.success('  [-] 头条同步设置完成')
+                
+        except Exception as e:
+            douyin_logger.error(f'  [-] 设置头条同步时发生错误: {str(e)}')
+            douyin_logger.info('  [-] 继续发布流程...')
 
     async def main(self):
         async with async_playwright() as playwright:
