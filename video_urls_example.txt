@@ -15,7 +15,6 @@
 # 2. 添加您要下载的实际视频URL
 # 3. 运行命令: python batch_video_downloader.py -f video_urls_example.txt -d ./videoFile/2025-06-09
 
-https://www.instagram.com/reel/DJe_YGygbao/?igsh=OXhzajYxZm04YWlz
-https://www.instagram.com/reel/DIsIeVQp4I4/?igsh=c3J2ZGFlNW54c2E=
+https://www.youtube.com/watch?v=jdS3uljNhOw
 
 
