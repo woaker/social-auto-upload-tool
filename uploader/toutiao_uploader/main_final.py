@@ -793,7 +793,7 @@ class TouTiaoArticle(object):
                                 douyin_logger.warning("⚠️ 可能还在发布页面，请手动确认发布状态")
                             else:
                                 douyin_logger.success("🎉 文章发布成功！")
-                                return True
+                            return True
                     
                     # 检查成功指示器
                     success_indicators = [
