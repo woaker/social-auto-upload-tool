@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  social-auto-upload:
+    build: .
+    container_name: social-auto-upload
+    ports:
+      - "5409:5409"
+    volumes:
+      - ./videoFile:/app/videoFile
+      - ./db:/app/db
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+      - FLASK_APP=sau_backend.py
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5409/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  nginx:
+    image: nginx:alpine
+    container_name: social-auto-upload-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./sau_frontend/dist:/usr/share/nginx/html
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./ssl:/etc/nginx/ssl  # SSL证书目录（可选）
+    depends_on:
+      - social-auto-upload
+    restart: unless-stopped
+
+volumes:
+  videoFile:
+  db:
+  logs:
