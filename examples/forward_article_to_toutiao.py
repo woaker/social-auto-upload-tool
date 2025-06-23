@@ -13,6 +13,7 @@ import sys
 import re
 import time
 import hashlib
+import textwrap
 from datetime import datetime
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
@@ -23,7 +24,301 @@ import markdown
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from uploader.toutiao_uploader.main import TouTiaoArticle, toutiao_setup
+from uploader.toutiao_uploader.main_final import TouTiaoArticle, toutiao_setup
+
+class WechatSyncStyleFormatter:
+    """参考wechatSync的格式化器 - 重新设计版本"""
+    
+    def __init__(self):
+        self.code_languages = {
+            'javascript': 'JavaScript', 'js': 'JavaScript',
+            'typescript': 'TypeScript', 'ts': 'TypeScript', 
+            'python': 'Python', 'py': 'Python',
+            'java': 'Java', 'cpp': 'C++', 'c': 'C',
+            'html': 'HTML', 'css': 'CSS', 'scss': 'SCSS',
+            'shell': 'Shell', 'bash': 'Bash', 'sql': 'SQL',
+            'json': 'JSON', 'xml': 'XML', 'yaml': 'YAML'
+        }
+    
+    def html_to_text(self, html_content):
+        """将HTML转换为清晰的纯文本格式"""
+        if not html_content:
+            return ""
+        
+        # 使用BeautifulSoup解析
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # 移除不需要的元素
+        for tag in soup(['script', 'style', 'meta', 'link', 'noscript']):
+            tag.decompose()
+        
+        # 处理特殊元素
+        self._preprocess_elements(soup)
+        
+        # 转换为文本
+        result = self._element_to_text(soup)
+        
+        # 后处理
+        return self._postprocess_text(result)
+    
+    def _preprocess_elements(self, soup):
+        """预处理HTML元素"""
+        # 处理代码块 - 标记为特殊格式
+        for pre in soup.find_all('pre'):
+            code = pre.find('code')
+            if code:
+                language = self._detect_language(code)
+                code_text = code.get_text()
+                # 创建特殊标记
+                marker = soup.new_tag('div')
+                marker['data-type'] = 'codeblock'
+                marker['data-language'] = language
+                marker.string = code_text
+                pre.replace_with(marker)
+        
+        # 处理内联代码
+        for code in soup.find_all('code'):
+            if code.parent.name != 'pre':
+                code_text = code.get_text()
+                marker = soup.new_tag('span')
+                marker['data-type'] = 'inline-code'
+                marker.string = code_text
+                code.replace_with(marker)
+        
+        # 处理链接
+        for a in soup.find_all('a'):
+            href = a.get('href', '')
+            text = a.get_text().strip()
+            if text and href:
+                marker = soup.new_tag('span')
+                marker['data-type'] = 'link'
+                marker['data-href'] = href
+                marker.string = text
+                a.replace_with(marker)
+    
+    def _detect_language(self, code_elem):
+        """检测代码语言"""
+        classes = code_elem.get('class', [])
+        if isinstance(classes, list):
+            for cls in classes:
+                if cls.startswith('language-'):
+                    return cls.replace('language-', '')
+                elif cls.startswith('lang-'):
+                    return cls.replace('lang-', '')
+        return ''
+    
+    def _element_to_text(self, element):
+        """将元素转换为文本"""
+        if isinstance(element, NavigableString):
+            return str(element).strip()
+        
+        if not hasattr(element, 'name'):
+            return ""
+        
+        tag = element.name.lower()
+        
+        # 获取元素文本内容
+        if tag == 'div' and element.get('data-type') == 'codeblock':
+            language = element.get('data-language', '')
+            code_text = element.get_text()
+            return self._format_code_block(code_text, language)
+        
+        elif tag == 'span' and element.get('data-type') == 'inline-code':
+            return f"`{element.get_text()}`"
+        
+        elif tag == 'span' and element.get('data-type') == 'link':
+            text = element.get_text()
+            href = element.get('data-href', '')
+            return f"[{text}]({href})"
+        
+        # 处理子元素
+        children_text = []
+        for child in element.children:
+            child_text = self._element_to_text(child)
+            if child_text:
+                children_text.append(child_text)
+        
+        text = ' '.join(children_text) if children_text else element.get_text().strip()
+        
+        # 根据标签格式化
+        if tag in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+            level = int(tag[1])
+            return self._format_heading(text, level)
+        
+        elif tag == 'p':
+            return f"\n\n{text}" if text else ""
+        
+        elif tag in ['strong', 'b']:
+            return f"**{text}**" if text else ""
+        
+        elif tag in ['em', 'i']:
+            return f"*{text}*" if text else ""
+        
+        elif tag in ['ul', 'ol']:
+            return self._format_list(element, tag)
+        
+        elif tag == 'li':
+            return text
+        
+        elif tag == 'blockquote':
+            return self._format_quote(text)
+        
+        elif tag == 'br':
+            return "\n"
+        
+        elif tag == 'hr':
+            return "\n\n---\n\n"
+        
+        elif tag in ['div', 'section', 'article']:
+            return f"\n{text}\n" if text else ""
+        
+        else:
+            return text
+    
+    def _format_heading(self, text, level):
+        """格式化标题"""
+        if not text:
+            return ""
+        
+        # 清理标题文本
+        text = text.strip()
+        
+        if level == 1:
+            return f"\n\n# {text}\n\n"
+        elif level == 2:
+            return f"\n\n## {text}\n\n"
+        elif level == 3:
+            return f"\n\n### {text}\n\n"
+        else:
+            return f"\n\n{'#' * level} {text}\n\n"
+    
+    def _format_code_block(self, code_text, language=''):
+        """格式化代码块"""
+        if not code_text:
+            return ""
+        
+        # 清理代码
+        lines = code_text.split('\n')
+        # 移除首尾空行
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+        
+        clean_code = '\n'.join(lines)
+        
+        if language:
+            return f"\n\n```{language}\n{clean_code}\n```\n\n"
+        else:
+            return f"\n\n```\n{clean_code}\n```\n\n"
+    
+    def _format_list(self, element, list_type):
+        """格式化列表"""
+        items = []
+        for i, li in enumerate(element.find_all('li', recursive=False), 1):
+            item_text = self._element_to_text(li).strip()
+            if item_text:
+                if list_type == 'ol':
+                    items.append(f"{i}. {item_text}")
+                else:
+                    items.append(f"- {item_text}")
+        
+        if items:
+            return f"\n\n" + '\n'.join(items) + "\n\n"
+        return ""
+    
+    def _format_quote(self, text):
+        """格式化引用"""
+        if not text:
+            return ""
+        
+        lines = text.split('\n')
+        quoted_lines = []
+        for line in lines:
+            line = line.strip()
+            if line:
+                quoted_lines.append(f"> {line}")
+        
+        if quoted_lines:
+            return f"\n\n" + '\n'.join(quoted_lines) + "\n\n"
+        return ""
+    
+    def _postprocess_text(self, text):
+        """后处理文本"""
+        if not text:
+            return ""
+        
+        # 清理多余的空行
+        text = re.sub(r'\n{4,}', '\n\n\n', text)
+        text = re.sub(r'\n{3}', '\n\n', text)
+        
+        # 确保标题前后有适当的空行
+        text = re.sub(r'([^\n])\n(#{1,6}\s)', r'\1\n\n\2', text)
+        text = re.sub(r'(#{1,6}\s[^\n]+)\n([^\n])', r'\1\n\n\2', text)
+        
+        # 确保代码块前后有适当的空行
+        text = re.sub(r'([^\n])\n(```)', r'\1\n\n\2', text)
+        text = re.sub(r'(```)\n([^\n])', r'\1\n\n\2', text)
+        
+        # 确保列表前后有适当的空行
+        text = re.sub(r'([^\n])\n([-*+]\s|\d+\.\s)', r'\1\n\n\2', text)
+        
+        return text.strip()
+    
+    def markdown_to_text(self, markdown_content):
+        """将Markdown转换为纯文本格式"""
+        if not markdown_content:
+            return ""
+        
+        # 先转换为HTML，再转换为文本
+        try:
+            md = markdown.Markdown(extensions=[
+                'markdown.extensions.extra',
+                'markdown.extensions.codehilite',
+                'markdown.extensions.tables'
+            ])
+            html = md.convert(markdown_content)
+            return self.html_to_text(html)
+        except Exception as e:
+            print(f"⚠️ Markdown转换失败，使用简单转换: {e}")
+            return self._simple_markdown_to_text(markdown_content)
+    
+    def _simple_markdown_to_text(self, text):
+        """简单的Markdown到文本转换"""
+        if not text:
+            return ""
+        
+        # 处理标题
+        text = re.sub(r'^#{1}\s+(.+)$', r'\n\n# \1\n\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{2}\s+(.+)$', r'\n\n## \1\n\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{3}\s+(.+)$', r'\n\n### \1\n\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{4,6}\s+(.+)$', r'\n\n#### \1\n\n', text, flags=re.MULTILINE)
+        
+        # 处理代码块
+        text = re.sub(r'```(\w*)\n(.*?)\n```', r'\n\n```\1\n\2\n```\n\n', text, flags=re.DOTALL)
+        
+        # 处理内联代码
+        text = re.sub(r'`([^`]+)`', r'`\1`', text)
+        
+        # 处理粗体和斜体
+        text = re.sub(r'\*\*([^*]+)\*\*', r'**\1**', text)
+        text = re.sub(r'\*([^*]+)\*', r'*\1*', text)
+        
+        # 处理列表
+        text = re.sub(r'^[-*+]\s+(.+)$', r'- \1', text, flags=re.MULTILINE)
+        text = re.sub(r'^\d+\.\s+(.+)$', r'1. \1', text, flags=re.MULTILINE)
+        
+        # 处理引用
+        text = re.sub(r'^>\s*(.+)$', r'> \1', text, flags=re.MULTILINE)
+        
+        # 处理链接
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'[\1](\2)', text)
+        
+        # 清理多余空行
+        text = re.sub(r'\n{4,}', '\n\n\n', text)
+        text = re.sub(r'\n{3}', '\n\n', text)
+        
+        return text.strip()
 
 class EnhancedArticleForwarder:
     """增强版文章转发工具"""
@@ -42,17 +337,11 @@ class EnhancedArticleForwarder:
             'oschina.net': self._extract_oschina,
         }
         
+        # 初始化格式化器
+        self.formatter = WechatSyncStyleFormatter()
+        
         # 内容美化配置
         self.content_enhancers = {
-            'code_languages': {
-                'javascript': 'JavaScript', 'js': 'JavaScript',
-                'typescript': 'TypeScript', 'ts': 'TypeScript',
-                'python': 'Python', 'py': 'Python',
-                'java': 'Java', 'cpp': 'C++', 'c': 'C',
-                'html': 'HTML', 'css': 'CSS', 'scss': 'SCSS',
-                'shell': 'Shell', 'bash': 'Bash', 'sql': 'SQL',
-                'json': 'JSON', 'xml': 'XML', 'yaml': 'YAML'
-            },
             'emoji_mapping': {
                 '前言': '📝', '介绍': '📖', '概述': '🔍',
                 '安装': '⚙️', '配置': '🔧', '使用': '🚀',
@@ -65,24 +354,6 @@ class EnhancedArticleForwarder:
                 '性能': '⚡', '安全': '🔒', '测试': '🧪'
             }
         }
-        
-        # 初始化Markdown转换器
-        self.markdown_converter = markdown.Markdown(
-            extensions=[
-                'markdown.extensions.extra',
-                'markdown.extensions.codehilite',
-                'markdown.extensions.tables',
-                'markdown.extensions.toc',
-                'markdown.extensions.fenced_code',
-                'markdown.extensions.nl2br'
-            ],
-            extension_configs={
-                'codehilite': {
-                    'css_class': 'highlight',
-                    'use_pygments': False
-                }
-            }
-        )
     
     def _markdown_to_html(self, markdown_content):
         """将Markdown内容转换为HTML"""
@@ -225,12 +496,10 @@ class EnhancedArticleForwarder:
                     return f"\n\n{content}\n\n"
             
             elif tag_name in ['strong', 'b']:
-                if content:
-                    return f"【{content}】"  # 使用中文括号表示粗体
+                return f"【{content}】"  # 使用中文括号表示粗体
             
             elif tag_name in ['em', 'i']:
-                if content:
-                    return f"《{content}》"  # 使用书名号表示斜体
+                return f"《{content}》"  # 使用书名号表示斜体
             
             elif tag_name == 'code':
                 if content:
@@ -350,7 +619,7 @@ class EnhancedArticleForwarder:
         unwanted_tags = [
             'script', 'style', 'nav', 'header', 'footer', 'aside',
             'advertisement', 'ad', 'sidebar', 'menu', 'breadcrumb',
-            'noscript', 'iframe', 'embed', 'object'
+            'iframe', 'embed', 'object'
         ]
         
         for tag_name in unwanted_tags:
@@ -496,8 +765,8 @@ class EnhancedArticleForwarder:
         
         content = ""
         if content_elem:
-            # 转换为markdown格式
-            content = self._html_to_markdown_enhanced(content_elem)
+            # 使用新的格式化器转换HTML为文本
+            content = self.formatter.html_to_text(str(content_elem))
         
         # 提取标签
         tags = self._extract_tags_juejin(soup)
@@ -845,48 +1114,343 @@ class EnhancedArticleForwarder:
             return None, None, None
     
     def _enhance_content_format(self, title, content, url, use_rich_text=True):
-        """增强内容格式"""
+        """增强内容格式 - 简洁清晰版"""
+        # 构建基础内容结构
         enhanced_content = f"# {title}\n\n"
         
         # 添加来源信息
-        enhanced_content += f"> 📎 **原文链接**: [{url}]({url})\n"
-        enhanced_content += f"> ⏰ **转发时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-        enhanced_content += f"> 🌟 **内容优化**: 已优化排版格式，提升阅读体验\n\n"
+        enhanced_content += f"> **原文链接**: {url}\n"
+        enhanced_content += f"> **转发时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+        enhanced_content += f"> **内容优化**: 已优化排版格式，提升阅读体验\n\n"
         enhanced_content += "---\n\n"
         
-        # 处理内容格式
+        # 处理主要内容
         if content:
-            # 清理内容
-            content = self._clean_text(content)
-            
-            # 确保标题层级正确（避免与主标题冲突）
-            content = re.sub(r'^# ', '## ', content, flags=re.MULTILINE)
-            content = re.sub(r'^## ', '### ', content, flags=re.MULTILINE)
-            content = re.sub(r'^### ', '#### ', content, flags=re.MULTILINE)
-            
-            # 添加段落分隔符
-            content = re.sub(r'\n\n([^#\n-*•✅❌⚠️🔑>```])', r'\n\n📄 \1', content)
-            
-            enhanced_content += content
+            # 使用新的格式化器处理内容
+            if use_rich_text:
+                print("🔄 正在使用WechatSync风格格式化器处理内容...")
+                # 如果内容是HTML，直接转换
+                if '<' in content and '>' in content:
+                    formatted_content = self.formatter.html_to_text(content)
+                else:
+                    # 如果是Markdown，先转换
+                    formatted_content = self.formatter.markdown_to_text(content)
+                
+                # 调整标题层级（避免与主标题冲突）
+                formatted_content = re.sub(r'^# ', '## ', formatted_content, flags=re.MULTILINE)
+                formatted_content = re.sub(r'^## ', '### ', formatted_content, flags=re.MULTILINE)
+                
+                enhanced_content += formatted_content
+            else:
+                # 简单文本处理
+                content = self._clean_text(content)
+                content = re.sub(r'^# ', '## ', content, flags=re.MULTILINE)
+                enhanced_content += content
         else:
-            enhanced_content += "暂无内容摘要，请查看原文链接。"
+            enhanced_content += "暂无内容摘要，请查看原文链接获取完整内容。\n\n"
         
-        # 添加结尾
-        enhanced_content += "\n\n---\n\n"
-        enhanced_content += "### 📝 转发说明\n\n"
-        enhanced_content += "- 🔗 **原文链接**: 请点击上方链接查看完整原文\n"
-        enhanced_content += "- 📱 **格式优化**: 已针对移动端阅读体验进行优化\n"
-        enhanced_content += "- ⚖️ **版权声明**: 本文转发自原作者，如有侵权请联系删除\n\n"
-        enhanced_content += "*感谢原作者的精彩分享！* 🙏"
-        
-        # 如果需要富文本格式，转换Markdown为纯文本格式
-        if use_rich_text:
-            print("🔄 正在转换为富文本格式...")
-            rich_text_content = self._markdown_to_rich_text(enhanced_content)
-            print(f"✅ 富文本转换完成，长度: {len(rich_text_content)} 字符")
-            return rich_text_content
-        
+        print(f"✅ 内容格式化完成，最终长度: {len(enhanced_content)} 字符")
         return enhanced_content
+    
+    def _optimize_content_spacing(self, content):
+        """优化内容间距"""
+        if not content:
+            return ""
+        
+        # 确保代码块前后有空行
+        content = re.sub(r'([^\n])\n(```)', r'\1\n\n\2', content)
+        content = re.sub(r'(```[^\n]*\n.*?\n```)\n([^\n])', r'\1\n\n\2', content, flags=re.DOTALL)
+        
+        # 确保标题前后有空行
+        content = re.sub(r'([^\n])\n(#{1,6}\s)', r'\1\n\n\2', content)
+        content = re.sub(r'(#{1,6}\s[^\n]*)\n([^\n#])', r'\1\n\n\2', content)
+        
+        # 确保列表前后有空行
+        content = re.sub(r'([^\n])\n([-*+]\s|[0-9]+\.\s)', r'\1\n\n\2', content)
+        
+        # 确保引用前后有空行
+        content = re.sub(r'([^\n])\n(>\s)', r'\1\n\n\2', content)
+        
+        # 清理多余的空行
+        content = re.sub(r'\n{4,}', '\n\n\n', content)
+        content = re.sub(r'\n{3}', '\n\n', content)
+        
+        return content
+    
+    def _smart_format_content(self, content):
+        """智能格式化内容"""
+        if not content:
+            return ""
+        
+        # 确保标题层级正确（避免与主标题冲突）
+        content = re.sub(r'^# ', '## ', content, flags=re.MULTILINE)
+        content = re.sub(r'^## ', '### ', content, flags=re.MULTILINE)
+        content = re.sub(r'^### ', '#### ', content, flags=re.MULTILINE)
+        content = re.sub(r'^#### ', '##### ', content, flags=re.MULTILINE)
+        
+        # 修复代码块格式
+        content = self._fix_code_blocks(content)
+        
+        # 优化段落分隔
+        content = self._optimize_paragraphs(content)
+        
+        # 优化列表格式
+        content = self._optimize_lists(content)
+        
+        # 添加emoji增强可读性
+        content = self._add_contextual_emojis(content)
+        
+        return content
+    
+    def _fix_code_blocks(self, content):
+        """修复代码块格式"""
+        # 修复代码块格式（确保前后有空行）
+        content = re.sub(r'```(\w*)\n', r'\n```\1\n', content)
+        content = re.sub(r'\n```\n', r'\n```\n\n', content)
+        
+        # 修复内联代码格式（确保前后有适当空格）
+        content = re.sub(r'([^\s])`([^`]+)`([^\s])', r'\1 `\2` \3', content)
+        
+        return content
+    
+    def _optimize_paragraphs(self, content):
+        """优化段落分隔"""
+        # 确保段落之间有适当的空行
+        lines = content.split('\n')
+        optimized_lines = []
+        
+        for i, line in enumerate(lines):
+            optimized_lines.append(line)
+            
+            # 如果当前行不是空行，下一行也不是空行，且下一行不是特殊格式
+            if (i < len(lines) - 1 and 
+                line.strip() and 
+                lines[i + 1].strip() and
+                not lines[i + 1].startswith(('#', '>', '-', '*', '+', '1.', '```', '|')) and
+                not line.startswith(('#', '>', '-', '*', '+', '```', '|'))):
+                
+                # 检查是否需要添加空行
+                if not any(lines[i + 1].startswith(prefix) for prefix in ['•', '┃', '【', '《']):
+                    optimized_lines.append('')
+        
+        return '\n'.join(optimized_lines)
+    
+    def _optimize_lists(self, content):
+        """优化列表格式"""
+        # 确保列表项前后有适当的空行
+        content = re.sub(r'^([-*+•]\s.+)$', r'\n\1', content, flags=re.MULTILINE)
+        content = re.sub(r'^(\d+\.\s.+)$', r'\n\1', content, flags=re.MULTILINE)
+        
+        # 清理多余的空行
+        content = re.sub(r'\n{3,}', '\n\n', content)
+        
+        return content
+    
+    def _add_contextual_emojis(self, content):
+        """根据上下文添加emoji"""
+        # 为特定关键词段落添加emoji
+        emoji_patterns = {
+            r'^(注意|警告|重要)': '⚠️',
+            r'^(技巧|技术|方法)': '💡',
+            r'^(示例|例子|演示)': '💻',
+            r'^(总结|结论|小结)': '📋',
+            r'^(优点|好处|优势)': '✅',
+            r'^(缺点|问题|错误)': '❌',
+            r'^(步骤|流程|过程)': '📝'
+        }
+        
+        for pattern, emoji in emoji_patterns.items():
+            content = re.sub(pattern, f'{emoji} \\1', content, flags=re.MULTILINE)
+        
+        return content
+    
+    def _markdown_to_rich_text_v2(self, markdown_content):
+        """优化版Markdown到富文本转换 v2.0"""
+        if not markdown_content:
+            return ""
+        
+        try:
+            # 先转换为HTML
+            html_content = self.markdown_converter.convert(markdown_content)
+            
+            # 使用改进的HTML到文本转换
+            rich_text = self._html_to_formatted_text_v2(html_content)
+            
+            return rich_text
+            
+        except Exception as e:
+            print(f"⚠️ 富文本转换失败: {e}")
+            return self._markdown_to_plain_text_v2(markdown_content)
+    
+    def _html_to_formatted_text_v2(self, html_content):
+        """改进版HTML到格式化文本转换"""
+        if not html_content:
+            return ""
+        
+        # 使用BeautifulSoup解析HTML
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        def process_element(element, depth=0):
+            if isinstance(element, NavigableString):
+                text = str(element).strip()
+                return text if text else ""
+            
+            if not hasattr(element, 'name'):
+                return ""
+            
+            tag_name = element.name.lower()
+            
+            # 获取所有子元素的文本
+            children_texts = []
+            for child in element.children:
+                child_text = process_element(child, depth + 1)
+                if child_text:
+                    children_texts.append(child_text)
+            
+            content = ' '.join(children_texts) if children_texts else ""
+            
+            # 根据标签类型格式化
+            if tag_name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+                level = int(tag_name[1])
+                if content:
+                    if level <= 2:
+                        return f"\n\n{'=' * 60}\n{'  ' * (level-1)}{content}\n{'=' * 60}\n\n"
+                    elif level == 3:
+                        return f"\n\n▶ {content}\n{'─' * min(len(content), 40)}\n\n"
+                    else:
+                        return f"\n\n● {content}\n\n"
+                        
+            elif tag_name == 'p':
+                if content:
+                    return f"\n\n{content}\n\n"
+                    
+            elif tag_name in ['strong', 'b']:
+                return f"**{content}**" if content else ""
+                
+            elif tag_name in ['em', 'i']:
+                return f"*{content}*" if content else ""
+                
+            elif tag_name == 'code':
+                return f"`{content}`" if content else ""
+                
+            elif tag_name == 'pre':
+                if content:
+                    # 检测代码语言
+                    code_elem = element.find('code')
+                    language = ""
+                    if code_elem and code_elem.get('class'):
+                        classes = ' '.join(code_elem.get('class', []))
+                        lang_match = re.search(r'language-(\w+)', classes)
+                        if lang_match:
+                            language = lang_match.group(1).upper()
+                    
+                    if language:
+                        return f"\n\n💻 **{language} 代码示例：**\n```\n{content}\n```\n\n"
+                    else:
+                        return f"\n\n💻 **代码示例：**\n```\n{content}\n```\n\n"
+                        
+            elif tag_name in ['ul', 'ol']:
+                if children_texts:
+                    list_content = '\n'.join(children_texts)
+                    return f"\n\n{list_content}\n\n"
+                    
+            elif tag_name == 'li':
+                return f"• {content}" if content else ""
+                
+            elif tag_name == 'blockquote':
+                if content:
+                    lines = content.split('\n')
+                    quoted_lines = [f"> {line.strip()}" for line in lines if line.strip()]
+                    return f"\n\n" + '\n'.join(quoted_lines) + "\n\n"
+                    
+            elif tag_name == 'a':
+                href = element.get('href', '')
+                if text_content and href:
+                    return f"[{text_content}]({href})"
+                return content
+                
+            elif tag_name == 'img':
+                alt = element.get('alt', '图片')
+                src = element.get('src', '')
+                if src:
+                    return f"\n\n![{alt}]({src})\n\n"
+            
+            elif tag_name in ['br']:
+                return "\n"
+            
+            elif tag_name in ['hr']:
+                return f"\n\n{'─' * 50}\n\n"
+            
+            elif tag_name in ['div', 'section', 'article']:
+                # 对于容器元素，返回子元素内容
+                if children_texts:
+                    return ' '.join(children_texts)
+                else:
+                    return text_content
+            
+            else:
+                return text_content
+        
+        # 处理整个文档
+        result = process_element(soup)
+        
+        # 后处理：清理格式
+        if result:
+            # 清理多余的空行
+            result = re.sub(r'\n{4,}', '\n\n\n', result)
+            result = re.sub(r'\n{3}', '\n\n', result)
+            
+            # 确保代码块前后有空行
+            result = re.sub(r'([^\n])\n(```)', r'\1\n\n\2', result)
+            result = re.sub(r'(```)\n([^\n])', r'\1\n\n\2', result)
+            
+            # 确保标题前后有适当空行
+            result = re.sub(r'([^\n])\n(▶|●|=)', r'\1\n\n\2', result)
+            
+            result = result.strip()
+        
+        return result
+    
+    def _markdown_to_plain_text_v2(self, markdown_content):
+        """改进版Markdown到纯文本转换（备用方案）"""
+        if not markdown_content:
+            return ""
+        
+        text = markdown_content
+        
+        # 处理标题（保持层级但美化格式）
+        text = re.sub(r'^#{1}\s+(.+)$', r'\n\n════════════════════════════════════════\n\1\n════════════════════════════════════════\n\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{2}\s+(.+)$', r'\n\n▶ \1\n────────────────────────────────\n\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{3,6}\s+(.+)$', r'\n\n● \1\n\n', text, flags=re.MULTILINE)
+        
+        # 处理代码块
+        text = re.sub(r'```(\w*)\n(.*?)\n```', r'\n\n💻 **代码示例：**\n┌─────────────────────────────────┐\n\2\n└─────────────────────────────────┘\n\n', text, flags=re.DOTALL)
+        
+        # 处理内联代码
+        text = re.sub(r'`([^`]+)`', r'`\1`', text)
+        
+        # 处理粗体和斜体
+        text = re.sub(r'\*\*([^*]+)\*\*', r'**\1**', text)
+        text = re.sub(r'\*([^*]+)\*', r'*\1*', text)
+        
+        # 处理引用
+        text = re.sub(r'^>\s*(.+)$', r'│ \1', text, flags=re.MULTILINE)
+        
+        # 处理列表
+        text = re.sub(r'^[-*+]\s+(.+)$', r'- \1', text, flags=re.MULTILINE)
+        text = re.sub(r'^\d+\.\s+(.+)$', r'1. \1', text, flags=re.MULTILINE)
+        
+        # 处理链接
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'[\1](\2)', text)
+        
+        # 处理分隔线
+        text = re.sub(r'^---+$', '─' * 50, text, flags=re.MULTILINE)
+        
+        # 最终清理
+        text = re.sub(r'\n{4,}', '\n\n\n', text)
+        text = re.sub(r'\n{3}', '\n\n', text)
+        
+        return text.strip()
     
     def save_article_file(self, title, content, tags, url):
         """保存文章到文件"""
@@ -980,11 +1544,17 @@ async def forward_article_from_url(url, account_file="cookies/toutiao_uploader/a
     print(f"🔗 来源: {url}")
     print(f"🎨 排版: 已启用增强排版模式")
     print(f"🔄 格式: Markdown → 富文本格式")
+    print(f"🔒 验证码: 如遇验证码将等待用户输入")
     
-    confirm = input("\n确认转发吗？(y/N): ").strip().lower()
-    if confirm not in ['y', 'yes']:
-        print("❌ 用户取消转发")
-        return False
+    try:
+        confirm = input("\n确认转发吗？(y/N): ").strip().lower()
+        if confirm not in ['y', 'yes']:
+            print("❌ 用户取消转发")
+            return False
+    except EOFError:
+        # 处理管道输入的情况
+        print("\n📋 检测到非交互模式，自动确认转发")
+        print("⚠️ 注意: 如遇验证码，请在浏览器中手动输入")
     
     # 转发到今日头条
     success = await forwarder.forward_to_toutiao(title, content, tags, url, account_file)

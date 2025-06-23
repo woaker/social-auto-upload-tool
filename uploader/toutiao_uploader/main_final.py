@@ -627,6 +627,108 @@ class TouTiaoArticle(object):
         
         return True
 
+    async def check_and_handle_captcha(self, page):
+        """检查并处理验证码"""
+        captcha_selectors = [
+            'input[placeholder*="验证码"]',
+            'input[placeholder*="captcha"]',
+            'input[type="text"][placeholder*="码"]',
+            '.captcha-input',
+            '.verification-code',
+            'input[name*="captcha"]',
+            'input[id*="captcha"]'
+        ]
+        
+        for selector in captcha_selectors:
+            try:
+                captcha_input = page.locator(selector)
+                if await captcha_input.count() > 0 and await captcha_input.is_visible():
+                    douyin_logger.warning("🔍 检测到验证码输入框")
+                    
+                    # 查找验证码图片
+                    captcha_image_selectors = [
+                        'img[src*="captcha"]',
+                        'img[alt*="验证码"]',
+                        '.captcha-image img',
+                        '.verification-image img'
+                    ]
+                    
+                    captcha_image = None
+                    for img_selector in captcha_image_selectors:
+                        img = page.locator(img_selector)
+                        if await img.count() > 0 and await img.is_visible():
+                            captcha_image = img
+                            break
+                    
+                    if captcha_image:
+                        douyin_logger.info("📷 找到验证码图片")
+                        # 截图保存验证码
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        captcha_screenshot = f"captcha_{timestamp}.png"
+                        await captcha_image.screenshot(path=captcha_screenshot)
+                        douyin_logger.info(f"📸 验证码截图已保存: {captcha_screenshot}")
+                    
+                    # 等待用户输入验证码
+                    douyin_logger.warning("⚠️ 需要输入验证码才能继续发布")
+                    douyin_logger.info("📋 请查看浏览器页面中的验证码")
+                    douyin_logger.info("💡 浏览器将保持打开状态，请手动输入验证码并点击确认")
+                    douyin_logger.info("⏰ 等待60秒让用户手动处理验证码...")
+                    
+                    # 等待用户手动处理验证码
+                    for i in range(60):
+                        await asyncio.sleep(1)
+                        
+                        # 检查验证码输入框是否还存在
+                        if await captcha_input.count() == 0 or not await captcha_input.is_visible():
+                            douyin_logger.info("✅ 验证码已处理，继续发布流程")
+                            return True
+                        
+                        # 每10秒提醒一次
+                        if i % 10 == 9:
+                            remaining = 60 - i - 1
+                            douyin_logger.info(f"⏰ 还有 {remaining} 秒，请在浏览器中输入验证码")
+                    
+                    # 60秒后仍有验证码，尝试交互式输入
+                    try:
+                        douyin_logger.warning("⚠️ 60秒内未检测到验证码处理，尝试交互式输入")
+                        captcha_code = input("🔢 请输入验证码（直接回车跳过）: ").strip()
+                        if captcha_code:
+                            await captcha_input.fill(captcha_code)
+                            douyin_logger.info(f"✅ 验证码已输入: {captcha_code}")
+                            await asyncio.sleep(1)
+                            
+                            # 查找验证码确认按钮
+                            confirm_selectors = [
+                                'button:has-text("确认")',
+                                'button:has-text("提交")',
+                                'button:has-text("验证")',
+                                '.captcha-submit',
+                                '.verify-btn'
+                            ]
+                            
+                            for confirm_selector in confirm_selectors:
+                                confirm_btn = page.locator(confirm_selector)
+                                if await confirm_btn.count() > 0 and await confirm_btn.is_visible():
+                                    await confirm_btn.click()
+                                    douyin_logger.info("✅ 验证码确认按钮已点击")
+                                    await asyncio.sleep(2)
+                                    break
+                            
+                            return True
+                        else:
+                            douyin_logger.warning("⚠️ 跳过验证码输入，请手动在浏览器中处理")
+                            return True  # 让流程继续，用户可以手动处理
+                    except KeyboardInterrupt:
+                        douyin_logger.warning("❌ 用户取消验证码输入")
+                        return False
+                    except Exception as e:
+                        douyin_logger.warning(f"⚠️ 验证码输入失败: {e}，请手动在浏览器中处理")
+                        return True  # 让流程继续，用户可以手动处理
+            except Exception as e:
+                continue
+        
+        return True  # 没有验证码，继续执行
+
     async def publish_article(self, page):
         """发布文章"""
         douyin_logger.info("准备发布文章...")
@@ -650,6 +752,11 @@ class TouTiaoArticle(object):
                     await publish_button.click(force=True)
                     await asyncio.sleep(5)
                     
+                    # 检查是否有验证码
+                    if not await self.check_and_handle_captcha(page):
+                        douyin_logger.error("❌ 验证码处理失败")
+                        return False
+                    
                     # 检查是否进入预览页面
                     current_url = page.url
                     if "preview" in current_url or await page.locator('button:has-text("确认发布")').count() > 0:
@@ -658,8 +765,35 @@ class TouTiaoArticle(object):
                         if await confirm_button.count() > 0:
                             await confirm_button.click(force=True)
                             await asyncio.sleep(3)
-                            douyin_logger.success("🎉 文章发布成功！")
-                            return True
+                            
+                            # 再次检查验证码
+                            if not await self.check_and_handle_captcha(page):
+                                douyin_logger.error("❌ 确认发布时验证码处理失败")
+                                return False
+                            
+                            # 等待发布完成
+                            await asyncio.sleep(5)
+                            
+                            # 检查发布结果
+                            success_indicators = [
+                                'text="发布成功"',
+                                'text="文章发布成功"',
+                                'text="发布完成"',
+                                '.success-message',
+                                '.publish-success'
+                            ]
+                            
+                            for indicator in success_indicators:
+                                if await page.locator(indicator).count() > 0:
+                                    douyin_logger.success("🎉 文章发布成功！")
+                                    return True
+                            
+                            # 检查是否还在发布页面（可能发布失败）
+                            if "publish" in page.url:
+                                douyin_logger.warning("⚠️ 可能还在发布页面，请手动确认发布状态")
+                            else:
+                                douyin_logger.success("🎉 文章发布成功！")
+                                return True
                     
                     # 检查成功指示器
                     success_indicators = [
@@ -743,7 +877,11 @@ class TouTiaoArticle(object):
             await context.storage_state(path=self.account_file)
             douyin_logger.info("Cookie已更新")
             
-            input("按回车键关闭浏览器...")
+            try:
+                input("按回车键关闭浏览器...")
+            except EOFError:
+                douyin_logger.info("检测到非交互模式，自动关闭浏览器")
+                await asyncio.sleep(3)
             await browser.close()
 
     async def main(self):
