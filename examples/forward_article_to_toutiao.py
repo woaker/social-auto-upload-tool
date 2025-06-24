@@ -965,15 +965,15 @@ class EnhancedArticleForwarder:
                     return f"\n\n{quoted_text}\n\n"
             
             elif tag_name == 'a':
-                href = elem.get('href', '')
+                href = element.get('href', '')
                 if text_content and href:
                     return f"[{text_content}]({href})"
                 else:
                     return text_content
             
             elif tag_name == 'img':
-                src = elem.get('src', '')
-                alt = elem.get('alt', '图片')
+                alt = element.get('alt', '图片')
+                src = element.get('src', '')
                 if src:
                     return f"\n\n![{alt}]({src})\n\n"
             
