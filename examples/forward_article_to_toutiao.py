@@ -27,7 +27,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from uploader.toutiao_uploader.main_final import TouTiaoArticle, toutiao_setup
 
 class WechatSyncStyleFormatter:
-    """参考wechatSync的格式化器 - 重新设计版本"""
+    """参考wechatSync的格式化器 - 简洁风格版本"""
     
     def __init__(self):
         self.code_languages = {
@@ -41,7 +41,7 @@ class WechatSyncStyleFormatter:
         }
     
     def html_to_text(self, html_content):
-        """将HTML转换为清晰的纯文本格式"""
+        """将HTML转换为清晰的文本格式 - wechatSync简洁风格"""
         if not html_content:
             return ""
         
@@ -49,7 +49,7 @@ class WechatSyncStyleFormatter:
         soup = BeautifulSoup(html_content, 'html.parser')
         
         # 移除不需要的元素
-        for tag in soup(['script', 'style', 'meta', 'link', 'noscript']):
+        for tag in soup(['script', 'style', 'meta', 'link', 'noscript', 'nav', 'header', 'footer']):
             tag.decompose()
         
         # 处理特殊元素
@@ -58,12 +58,12 @@ class WechatSyncStyleFormatter:
         # 转换为文本
         result = self._element_to_text(soup)
         
-        # 后处理
+        # 后处理 - 应用简洁风格
         return self._postprocess_text(result)
     
     def _preprocess_elements(self, soup):
         """预处理HTML元素"""
-        # 处理代码块 - 标记为特殊格式
+        # 处理代码块
         for pre in soup.find_all('pre'):
             code = pre.find('code')
             if code:
@@ -102,13 +102,24 @@ class WechatSyncStyleFormatter:
         if isinstance(classes, list):
             for cls in classes:
                 if cls.startswith('language-'):
-                    return cls.replace('language-', '')
+                    lang = cls.replace('language-', '')
+                    return self.code_languages.get(lang, lang.title())
                 elif cls.startswith('lang-'):
-                    return cls.replace('lang-', '')
+                    lang = cls.replace('lang-', '')
+                    return self.code_languages.get(lang, lang.title())
+        
+        # 尝试从父元素获取语言信息
+        parent = code_elem.parent
+        if parent and parent.get('class'):
+            for cls in parent.get('class', []):
+                if cls.startswith('language-'):
+                    lang = cls.replace('language-', '')
+                    return self.code_languages.get(lang, lang.title())
+        
         return ''
     
     def _element_to_text(self, element):
-        """将元素转换为文本"""
+        """将元素转换为文本 - wechatSync简洁风格"""
         if isinstance(element, NavigableString):
             return str(element).strip()
         
@@ -117,7 +128,7 @@ class WechatSyncStyleFormatter:
         
         tag = element.name.lower()
         
-        # 获取元素文本内容
+        # 处理特殊数据类型
         if tag == 'div' and element.get('data-type') == 'codeblock':
             language = element.get('data-language', '')
             code_text = element.get_text()
@@ -140,7 +151,7 @@ class WechatSyncStyleFormatter:
         
         text = ' '.join(children_text) if children_text else element.get_text().strip()
         
-        # 根据标签格式化
+        # 根据标签格式化 - 简洁风格
         if tag in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
             level = int(tag[1])
             return self._format_heading(text, level)
@@ -172,15 +183,17 @@ class WechatSyncStyleFormatter:
         elif tag in ['div', 'section', 'article']:
             return f"\n{text}\n" if text else ""
         
+        elif tag == 'table':
+            return self._format_table(element)
+        
         else:
             return text
     
     def _format_heading(self, text, level):
-        """格式化标题"""
+        """格式化标题 - wechatSync简洁风格"""
         if not text:
             return ""
         
-        # 清理标题文本
         text = text.strip()
         
         if level == 1:
@@ -189,31 +202,38 @@ class WechatSyncStyleFormatter:
             return f"\n\n## {text}\n\n"
         elif level == 3:
             return f"\n\n### {text}\n\n"
+        elif level == 4:
+            return f"\n\n#### {text}\n\n"
         else:
-            return f"\n\n{'#' * level} {text}\n\n"
+            return f"\n\n##### {text}\n\n"
     
     def _format_code_block(self, code_text, language=''):
-        """格式化代码块"""
+        """格式化代码块 - wechatSync简洁风格"""
         if not code_text:
             return ""
         
         # 清理代码
         lines = code_text.split('\n')
+        
         # 移除首尾空行
         while lines and not lines[0].strip():
             lines.pop(0)
         while lines and not lines[-1].strip():
             lines.pop()
         
+        if not lines:
+            return ""
+        
         clean_code = '\n'.join(lines)
         
+        # 简洁的代码块格式
         if language:
             return f"\n\n```{language}\n{clean_code}\n```\n\n"
         else:
             return f"\n\n```\n{clean_code}\n```\n\n"
     
     def _format_list(self, element, list_type):
-        """格式化列表"""
+        """格式化列表 - wechatSync简洁风格"""
         items = []
         for i, li in enumerate(element.find_all('li', recursive=False), 1):
             item_text = self._element_to_text(li).strip()
@@ -228,12 +248,13 @@ class WechatSyncStyleFormatter:
         return ""
     
     def _format_quote(self, text):
-        """格式化引用"""
+        """格式化引用 - wechatSync简洁风格"""
         if not text:
             return ""
         
         lines = text.split('\n')
         quoted_lines = []
+        
         for line in lines:
             line = line.strip()
             if line:
@@ -243,30 +264,51 @@ class WechatSyncStyleFormatter:
             return f"\n\n" + '\n'.join(quoted_lines) + "\n\n"
         return ""
     
+    def _format_table(self, table_element):
+        """格式化表格 - 简化版"""
+        result = "\n\n**表格:**\n\n"
+        
+        rows = table_element.find_all('tr')
+        for i, row in enumerate(rows):
+            cells = row.find_all(['td', 'th'])
+            if cells:
+                row_text = ' | '.join(cell.get_text().strip() for cell in cells)
+                if i == 0:  # 表头
+                    result += f"| {row_text} |\n"
+                    result += "|" + " --- |" * len(cells) + "\n"
+                else:
+                    result += f"| {row_text} |\n"
+        
+        result += "\n"
+        return result
+    
     def _postprocess_text(self, text):
-        """后处理文本"""
+        """后处理文本 - wechatSync简洁风格"""
         if not text:
             return ""
         
-        # 清理多余的空行
+        # 1. 清理多余的空行
         text = re.sub(r'\n{4,}', '\n\n\n', text)
         text = re.sub(r'\n{3}', '\n\n', text)
         
-        # 确保标题前后有适当的空行
+        # 2. 确保标题前后有适当的空行
         text = re.sub(r'([^\n])\n(#{1,6}\s)', r'\1\n\n\2', text)
-        text = re.sub(r'(#{1,6}\s[^\n]+)\n([^\n])', r'\1\n\n\2', text)
+        text = re.sub(r'(#{1,6}\s[^\n]*)\n([^\n#])', r'\1\n\n\2', text)
         
-        # 确保代码块前后有适当的空行
+        # 3. 确保代码块前后有适当空行
         text = re.sub(r'([^\n])\n(```)', r'\1\n\n\2', text)
         text = re.sub(r'(```)\n([^\n])', r'\1\n\n\2', text)
         
-        # 确保列表前后有适当的空行
+        # 4. 确保列表前后有适当的空行
         text = re.sub(r'([^\n])\n([-*+]\s|\d+\.\s)', r'\1\n\n\2', text)
+        
+        # 5. 确保引用前后有适当的空行
+        text = re.sub(r'([^\n])\n(>\s)', r'\1\n\n\2', text)
         
         return text.strip()
     
     def markdown_to_text(self, markdown_content):
-        """将Markdown转换为纯文本格式"""
+        """将Markdown转换为文本格式 - wechatSync简洁风格"""
         if not markdown_content:
             return ""
         
@@ -275,16 +317,17 @@ class WechatSyncStyleFormatter:
             md = markdown.Markdown(extensions=[
                 'markdown.extensions.extra',
                 'markdown.extensions.codehilite',
-                'markdown.extensions.tables'
+                'markdown.extensions.tables',
+                'markdown.extensions.toc'
             ])
             html = md.convert(markdown_content)
             return self.html_to_text(html)
         except Exception as e:
-            print(f"⚠️ Markdown转换失败，使用简单转换: {e}")
+            print(f"⚠️ Markdown转换失败，使用简化转换: {e}")
             return self._simple_markdown_to_text(markdown_content)
     
     def _simple_markdown_to_text(self, text):
-        """简单的Markdown到文本转换"""
+        """简化的Markdown到文本转换 - wechatSync简洁风格"""
         if not text:
             return ""
         
@@ -292,10 +335,16 @@ class WechatSyncStyleFormatter:
         text = re.sub(r'^#{1}\s+(.+)$', r'\n\n# \1\n\n', text, flags=re.MULTILINE)
         text = re.sub(r'^#{2}\s+(.+)$', r'\n\n## \1\n\n', text, flags=re.MULTILINE)
         text = re.sub(r'^#{3}\s+(.+)$', r'\n\n### \1\n\n', text, flags=re.MULTILINE)
-        text = re.sub(r'^#{4,6}\s+(.+)$', r'\n\n#### \1\n\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{4}\s+(.+)$', r'\n\n#### \1\n\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{5,6}\s+(.+)$', r'\n\n##### \1\n\n', text, flags=re.MULTILINE)
         
         # 处理代码块
-        text = re.sub(r'```(\w*)\n(.*?)\n```', r'\n\n```\1\n\2\n```\n\n', text, flags=re.DOTALL)
+        def replace_code_block(match):
+            language = match.group(1) if match.group(1) else ''
+            code = match.group(2)
+            return self._format_code_block(code, language)
+        
+        text = re.sub(r'```(\w*)\n(.*?)\n```', replace_code_block, text, flags=re.DOTALL)
         
         # 处理内联代码
         text = re.sub(r'`([^`]+)`', r'`\1`', text)
@@ -304,21 +353,21 @@ class WechatSyncStyleFormatter:
         text = re.sub(r'\*\*([^*]+)\*\*', r'**\1**', text)
         text = re.sub(r'\*([^*]+)\*', r'*\1*', text)
         
-        # 处理列表
-        text = re.sub(r'^[-*+]\s+(.+)$', r'- \1', text, flags=re.MULTILINE)
-        text = re.sub(r'^\d+\.\s+(.+)$', r'1. \1', text, flags=re.MULTILINE)
-        
         # 处理引用
         text = re.sub(r'^>\s*(.+)$', r'> \1', text, flags=re.MULTILINE)
+        
+        # 处理列表
+        text = re.sub(r'^[-*+]\s+(.+)$', r'- \1', text, flags=re.MULTILINE)
+        text = re.sub(r'^(\d+)\.\s+(.+)$', r'\1. \2', text, flags=re.MULTILINE)
         
         # 处理链接
         text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'[\1](\2)', text)
         
-        # 清理多余空行
-        text = re.sub(r'\n{4,}', '\n\n\n', text)
-        text = re.sub(r'\n{3}', '\n\n', text)
+        # 处理分隔线
+        text = re.sub(r'^---+$', '---', text, flags=re.MULTILINE)
         
-        return text.strip()
+        # 最终清理
+        return self._postprocess_text(text)
 
 class EnhancedArticleForwarder:
     """增强版文章转发工具"""
@@ -492,8 +541,7 @@ class EnhancedArticleForwarder:
                         return f"\n\n● {content}\n\n"
             
             elif tag_name == 'p':
-                if content:
-                    return f"\n\n{content}\n\n"
+                return f"\n\n{content}\n\n"
             
             elif tag_name in ['strong', 'b']:
                 return f"【{content}】"  # 使用中文括号表示粗体
@@ -525,10 +573,10 @@ class EnhancedArticleForwarder:
             
             elif tag_name == 'a':
                 href = element.get('href', '')
-                if content and href:
-                    return f"{content}（{href}）"
+                if text_content and href:
+                    return f"{text_content}（{href}）"
                 else:
-                    return content
+                    return text_content
             
             elif tag_name == 'table':
                 return f"\n\n📊 表格数据：\n{content}\n\n"
@@ -583,7 +631,7 @@ class EnhancedArticleForwarder:
         text = re.sub(r'^>\s*(.+)$', r'┃ \1', text, flags=re.MULTILINE)
         
         # 处理列表
-        text = re.sub(r'^[-*+]\s+(.+)$', r'• \1', text, flags=re.MULTILINE)
+        text = re.sub(r'^[-*+]\s+(.+)$', r'- \1', text, flags=re.MULTILINE)
         text = re.sub(r'^\d+\.\s+(.+)$', r'• \1', text, flags=re.MULTILINE)
         
         # 处理链接
@@ -984,7 +1032,7 @@ class EnhancedArticleForwarder:
                 return "\n"
             
             elif tag_name in ['hr']:
-                return "\n\n---\n\n"
+                return f"\n\n---\n\n"
             
             elif tag_name in ['div', 'section', 'article']:
                 # 对于容器元素，返回子元素内容
@@ -994,7 +1042,6 @@ class EnhancedArticleForwarder:
                     return text_content
             
             else:
-                # 其他标签直接返回文本内容
                 return text_content
         
         # 处理整个元素
@@ -1114,11 +1161,11 @@ class EnhancedArticleForwarder:
             return None, None, None
     
     def _enhance_content_format(self, title, content, url, use_rich_text=True):
-        """增强内容格式 - 简洁清晰版"""
+        """增强内容格式 - wechatSync简洁风格"""
         # 构建基础内容结构
         enhanced_content = f"# {title}\n\n"
         
-        # 添加来源信息
+        # 添加来源信息 - 简洁样式
         enhanced_content += f"> **原文链接**: {url}\n"
         enhanced_content += f"> **转发时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
         enhanced_content += f"> **内容优化**: 已优化排版格式，提升阅读体验\n\n"
@@ -1126,9 +1173,9 @@ class EnhancedArticleForwarder:
         
         # 处理主要内容
         if content:
-            # 使用新的格式化器处理内容
+            # 使用简洁风格格式化器处理内容
             if use_rich_text:
-                print("🔄 正在使用WechatSync风格格式化器处理内容...")
+                print("🎨 正在使用wechatSync简洁风格格式化器处理内容...")
                 # 如果内容是HTML，直接转换
                 if '<' in content and '>' in content:
                     formatted_content = self.formatter.html_to_text(content)
@@ -1144,12 +1191,14 @@ class EnhancedArticleForwarder:
             else:
                 # 简单文本处理
                 content = self._clean_text(content)
-                content = re.sub(r'^# ', '## ', content, flags=re.MULTILINE)
+                # 应用基本格式化
+                content = self.formatter._simple_markdown_to_text(content)
                 enhanced_content += content
         else:
             enhanced_content += "暂无内容摘要，请查看原文链接获取完整内容。\n\n"
         
         print(f"✅ 内容格式化完成，最终长度: {len(enhanced_content)} 字符")
+        print(f"📝 格式化特性: 简洁标题、清晰代码块、适当段落间距")
         return enhanced_content
     
     def _optimize_content_spacing(self, content):
@@ -1332,7 +1381,7 @@ class EnhancedArticleForwarder:
                 
             elif tag_name == 'code':
                 return f"`{content}`" if content else ""
-                
+            
             elif tag_name == 'pre':
                 if content:
                     # 检测代码语言
@@ -1356,7 +1405,7 @@ class EnhancedArticleForwarder:
                     
             elif tag_name == 'li':
                 return f"• {content}" if content else ""
-                
+            
             elif tag_name == 'blockquote':
                 if content:
                     lines = content.split('\n')
@@ -1367,8 +1416,9 @@ class EnhancedArticleForwarder:
                 href = element.get('href', '')
                 if text_content and href:
                     return f"[{text_content}]({href})"
-                return content
-                
+                else:
+                    return text_content
+            
             elif tag_name == 'img':
                 alt = element.get('alt', '图片')
                 src = element.get('src', '')
@@ -1427,18 +1477,18 @@ class EnhancedArticleForwarder:
         text = re.sub(r'```(\w*)\n(.*?)\n```', r'\n\n💻 **代码示例：**\n┌─────────────────────────────────┐\n\2\n└─────────────────────────────────┘\n\n', text, flags=re.DOTALL)
         
         # 处理内联代码
-        text = re.sub(r'`([^`]+)`', r'`\1`', text)
+        text = re.sub(r'`([^`]+)`', r' `\1` ', text)
         
         # 处理粗体和斜体
         text = re.sub(r'\*\*([^*]+)\*\*', r'**\1**', text)
         text = re.sub(r'\*([^*]+)\*', r'*\1*', text)
         
         # 处理引用
-        text = re.sub(r'^>\s*(.+)$', r'│ \1', text, flags=re.MULTILINE)
+        text = re.sub(r'^>\s*(.+)$', r'┃ \1', text, flags=re.MULTILINE)
         
         # 处理列表
-        text = re.sub(r'^[-*+]\s+(.+)$', r'- \1', text, flags=re.MULTILINE)
-        text = re.sub(r'^\d+\.\s+(.+)$', r'1. \1', text, flags=re.MULTILINE)
+        text = re.sub(r'^[-*+]\s+(.+)$', r'• \1', text, flags=re.MULTILINE)
+        text = re.sub(r'^\d+\.\s+(.+)$', r'• \1', text, flags=re.MULTILINE)
         
         # 处理链接
         text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'[\1](\2)', text)
@@ -1447,10 +1497,7 @@ class EnhancedArticleForwarder:
         text = re.sub(r'^---+$', '─' * 50, text, flags=re.MULTILINE)
         
         # 最终清理
-        text = re.sub(r'\n{4,}', '\n\n\n', text)
-        text = re.sub(r'\n{3}', '\n\n', text)
-        
-        return text.strip()
+        return self._postprocess_text_v2(text)
     
     def save_article_file(self, title, content, tags, url):
         """保存文章到文件"""
@@ -1573,10 +1620,11 @@ def main():
     """主函数"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='增强版文章链接转发到今日头条工具 v2.1')
+    parser = argparse.ArgumentParser(description='增强版文章链接转发到今日头条工具 v3.0 (wechatSync风格)')
     parser.add_argument('url', help='要转发的文章链接')
     parser.add_argument('--account', default='cookies/toutiao_uploader/account.json', help='账号cookie文件路径')
     parser.add_argument('--no-save', action='store_true', help='不保存文章到本地文件')
+    parser.add_argument('--preview', action='store_true', help='仅预览格式化效果，不发布到头条')
     
     args = parser.parse_args()
     
@@ -1585,19 +1633,74 @@ def main():
         print("❌ 请提供有效的URL链接")
         return
     
-    # 检查账号文件
-    if not os.path.exists(args.account):
-        print(f"❌ 账号文件不存在: {args.account}")
-        print("请先运行登录脚本: python examples/login_toutiao.py")
-        return
+    # 如果是预览模式，不检查账号文件
+    if not args.preview:
+        # 检查账号文件
+        if not os.path.exists(args.account):
+            print(f"❌ 账号文件不存在: {args.account}")
+            print("请先运行登录脚本: python examples/login_toutiao.py")
+            return
     
     print(f"🔗 目标链接: {args.url}")
-    print(f"🔑 账号文件: {args.account}")
+    if not args.preview:
+        print(f"🔑 账号文件: {args.account}")
     print(f"💾 保存文件: {'否' if args.no_save else '是'}")
-    print(f"✨ 版本: 增强排版 v2.1 (富文本格式)")
+    print(f"👀 预览模式: {'是' if args.preview else '否'}")
+    print(f"✨ 版本: WechatSync风格排版 v3.0 (增强代码块、标题美化)")
     
-    # 运行转发
-    asyncio.run(forward_article_from_url(args.url, args.account, not args.no_save))
+    # 运行转发或预览
+    if args.preview:
+        asyncio.run(preview_article_format(args.url, not args.no_save))
+    else:
+        asyncio.run(forward_article_from_url(args.url, args.account, not args.no_save))
+
+async def preview_article_format(url, save_file=True):
+    """预览文章格式化效果"""
+    print("👁️ 文章格式化预览模式")
+    print("=" * 60)
+    
+    # 创建转发器
+    forwarder = EnhancedArticleForwarder()
+    
+    # 获取文章内容
+    title, content, tags = await forwarder.fetch_article(url)
+    
+    if not title or not content:
+        print("❌ 无法获取文章内容")
+        return False
+    
+    # 保存文章文件（可选）
+    if save_file:
+        file_path = forwarder.save_article_file(title, content, tags, url)
+        print(f"📁 预览文件已保存: {file_path}")
+    
+    # 生成格式化内容预览
+    print(f"\n📝 文章格式化预览:")
+    print(f"📰 标题: {title}")
+    print(f"📊 原始内容长度: {len(content)} 字符")
+    print(f"🏷️ 标签: {tags}")
+    print("=" * 60)
+    
+    # 增强内容格式并显示
+    enhanced_content = forwarder._enhance_content_format(title, content, url, use_rich_text=True)
+    
+    print("\n🎨 格式化后内容预览:")
+    print("─" * 60)
+    print(enhanced_content[:1000] + "..." if len(enhanced_content) > 1000 else enhanced_content)
+    if len(enhanced_content) > 1000:
+        print(f"\n... (内容太长，仅显示前1000字符，完整内容共{len(enhanced_content)}字符)")
+    print("─" * 60)
+    
+    print("\n✨ 格式化特性说明:")
+    print("  📖 标题: 使用emoji和分隔线美化")
+    print("  💻 代码块: 带边框和语言标识")
+    print("  🔹 段落: 适当间距和层级结构")
+    print("  📝 列表: 使用美观的项目符号")
+    print("  💡 引用: 带竖线和emoji装饰")
+    print("  🔗 链接: 保留原始链接格式")
+    
+    print(f"\n🎯 预览完成！如需发布到头条，请移除 --preview 参数")
+    return True
 
 if __name__ == "__main__":
     main() 
