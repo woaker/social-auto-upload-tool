@@ -4,7 +4,7 @@ from datetime import datetime
 from os.path import exists
 from pathlib import Path
 
-from conf import BASE_DIR
+from config import BASE_DIR
 from uploader.douyin_uploader.main import douyin_setup, DouYinVideo
 from uploader.ks_uploader.main import ks_setup, KSVideo
 from uploader.tencent_uploader.main import weixin_setup, TencentVideo

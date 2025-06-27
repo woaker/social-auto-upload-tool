@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from conf import BASE_DIR
+from config import BASE_DIR
 from uploader.ks_uploader.main import ks_setup, KSVideo
 from utils.files_times import generate_schedule_time_next_day, get_title_and_hashtags
 

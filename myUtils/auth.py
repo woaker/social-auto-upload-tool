@@ -5,7 +5,7 @@ import os
 from playwright.async_api import async_playwright
 from xhs import XhsClient
 
-from conf import BASE_DIR
+from config import BASE_DIR
 from utils.base_social_media import set_init_script
 from utils.log import tencent_logger, kuaishou_logger
 from pathlib import Path

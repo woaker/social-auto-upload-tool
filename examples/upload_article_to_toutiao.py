@@ -2,7 +2,7 @@ import asyncio
 import re
 from pathlib import Path
 
-from conf import BASE_DIR
+from config import BASE_DIR
 from uploader.toutiao_uploader.main import toutiao_setup, TouTiaoArticle
 from utils.files_times import generate_schedule_time_next_day
 

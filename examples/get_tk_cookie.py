@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from conf import BASE_DIR
+from config import BASE_DIR
 from uploader.tk_uploader.main_chrome import tiktok_setup
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@ from pathlib import Path
 from sys import stdout
 from loguru import logger
 
-from conf import BASE_DIR
+from config import BASE_DIR
 
 
 def log_formatter(record: dict) -> str:

@@ -5,7 +5,7 @@ from playwright.async_api import Playwright, async_playwright, Page
 import os
 import asyncio
 
-from conf import LOCAL_CHROME_PATH
+from config import LOCAL_CHROME_PATH
 from utils.base_social_media import set_init_script
 from utils.log import xiaohongshu_logger
 

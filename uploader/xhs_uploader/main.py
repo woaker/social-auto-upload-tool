@@ -6,7 +6,7 @@ from time import sleep
 import requests
 from playwright.sync_api import sync_playwright
 
-from conf import BASE_DIR, XHS_SERVER
+from config import BASE_DIR, XHS_SERVER
 
 config = configparser.RawConfigParser()
 config.read('accounts.ini')

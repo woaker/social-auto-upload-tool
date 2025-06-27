@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from datetime import datetime
 
-from conf import BASE_DIR
+from config import BASE_DIR
 
 
 def setup_today_directory():

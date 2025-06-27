@@ -7,7 +7,7 @@ from myUtils.auth import check_cookie
 from utils.base_social_media import set_init_script
 import uuid
 from pathlib import Path
-from conf import BASE_DIR
+from config import BASE_DIR
 
 # 抖音登录
 async def douyin_cookie_gen(id,status_queue):

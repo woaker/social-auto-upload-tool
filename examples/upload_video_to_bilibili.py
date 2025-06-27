@@ -2,7 +2,7 @@ import time
 from pathlib import Path
 
 from uploader.bilibili_uploader.main import read_cookie_json_file, extract_keys_from_json, random_emoji, BilibiliUploader
-from conf import BASE_DIR
+from config import BASE_DIR
 from utils.constant import VideoZoneTypes
 from utils.files_times import generate_schedule_time_next_day, get_title_and_hashtags
 
