@@ -15,6 +15,14 @@
 # 2. 添加您要下载的实际视频URL
 # 3. 运行命令: python batch_video_downloader.py -f video_urls_example.txt -d ./videoFile/2025-06-09
 
-https://www.youtube.com/watch?v=7ar1Zp2xDSM
+https://www.youtube.com/shorts/m9kghFH_gdw
+https://www.youtube.com/watch?v=M4HG9LMAeYw
+https://www.youtube.com/shorts/SbyDYyZoL4Y
+https://www.youtube.com/shorts/U__FQmEFxsw
+https://www.youtube.com/shorts/hD7C4EYQ_8I
+https://www.youtube.com/watch?v=v41xKxZmygU
+https://www.youtube.com/watch?v=v41xKxZmygU
+https://www.youtube.com/watch?v=afQtcBcsIhc
+
 
 
