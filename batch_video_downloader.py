@@ -64,6 +64,22 @@ class VideoDownloader:
             '--output', str(self.download_dir / '%(title)s.%(ext)s')
         ]
         
+        # 针对 YouTube 的特殊处理
+        if 'youtube.com' in url or 'youtu.be' in url:
+            # 添加 YouTube 专用选项来绕过机器人检测
+            youtube_options = [
+                '--extractor-args', 'youtube:skip=translated_subs',
+                '--no-check-certificate',
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            ]
+            cmd.extend(youtube_options)
+            
+            # 如果存在 cookies 文件，自动使用
+            cookies_file = Path('youtube_cookies.txt')
+            if cookies_file.exists():
+                cmd.extend(['--cookies', str(cookies_file)])
+                print(f"✓ 使用 cookies 文件: {cookies_file}")
+        
         # 添加自定义选项
         if custom_options:
             cmd.extend(custom_options)
@@ -79,6 +95,15 @@ class VideoDownloader:
         except subprocess.CalledProcessError as e:
             print(f"❌ 下载失败: {url}")
             print(f"错误信息: {e.stderr}")
+            
+            # 如果是 YouTube 且失败，提供解决建议
+            if 'youtube.com' in url or 'youtu.be' in url:
+                if 'Sign in to confirm' in e.stderr:
+                    print(f"💡 解决建议:")
+                    print(f"   1. 导出浏览器 cookies 到 youtube_cookies.txt")
+                    print(f"   2. 或使用 --options \"--cookies-from-browser\" \"chrome\"")
+                    print(f"   3. 参考: https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies")
+            
             return False
     
     def download_from_urls(self, urls: List[str], custom_options: List[str] = None) -> dict:
@@ -171,6 +196,12 @@ def main():
   # 从文件下载
   python batch_video_downloader.py -d ./videos -f urls.txt
   
+  # 使用 cookies 文件
+  python batch_video_downloader.py -d ./videos -f urls.txt --cookies youtube_cookies.txt
+  
+  # 从浏览器导入 cookies
+  python batch_video_downloader.py -d ./videos -f urls.txt --cookies-from-browser chrome
+  
   # 使用自定义选项
   python batch_video_downloader.py -d ./videos -f urls.txt --options "--format" "best[height<=720]"
         """)
@@ -187,16 +218,34 @@ def main():
     parser.add_argument('--options', nargs='*',
                         help='自定义 yt-dlp 选项')
     
+    # 添加 cookies 相关参数
+    parser.add_argument('--cookies', 
+                        help='指定 cookies 文件路径')
+    parser.add_argument('--cookies-from-browser', 
+                        choices=['chrome', 'firefox', 'safari', 'edge'],
+                        help='从指定浏览器导入 cookies')
+    
     args = parser.parse_args()
     
     # 创建下载器
     downloader = VideoDownloader(args.dir)
     
+    # 处理 cookies 参数
+    custom_options = args.options if args.options else []
+    
+    if args.cookies:
+        custom_options.extend(['--cookies', args.cookies])
+        print(f"✓ 使用 cookies 文件: {args.cookies}")
+    
+    if args.cookies_from_browser:
+        custom_options.extend(['--cookies-from-browser', args.cookies_from_browser])
+        print(f"✓ 从浏览器导入 cookies: {args.cookies_from_browser}")
+    
     # 执行下载
     if args.urls:
-        result = downloader.download_from_urls(args.urls, args.options)
+        result = downloader.download_from_urls(args.urls, custom_options)
     else:
-        result = downloader.download_from_file(args.file, args.options)
+        result = downloader.download_from_file(args.file, custom_options)
     
     # 退出码
     sys.exit(0 if result['failed'] == 0 else 1)

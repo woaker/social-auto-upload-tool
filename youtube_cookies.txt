@@ -1,0 +1,12 @@
+# YouTube Cookies 文件
+# 请将您从浏览器导出的 cookies 内容粘贴到这里
+# 格式应该是 Netscape cookie 格式，每行一个 cookie
+# 
+# 如何获取 cookies:
+# 1. 在浏览器中安装 "Get cookies.txt LOCALLY" 插件
+# 2. 访问 YouTube.com 并登录
+# 3. 点击插件图标，导出 cookies
+# 4. 将内容复制到此文件中
+#
+# 示例格式：
+# .youtube.com	TRUE	/	FALSE	1234567890	cookie_name	cookie_value 
