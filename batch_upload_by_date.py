@@ -19,6 +19,9 @@ import os
 import sys
 import json
 
+# 添加当前目录到Python路径，确保可以导入本地的conf模块
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from conf import BASE_DIR
 from utils.files_times import get_title_and_hashtags, generate_schedule_time_next_day
 
