@@ -1,12 +1,24 @@
-# YouTube Cookies 文件
-# 请将您从浏览器导出的 cookies 内容粘贴到这里
-# 格式应该是 Netscape cookie 格式，每行一个 cookie
-# 
-# 如何获取 cookies:
-# 1. 在浏览器中安装 "Get cookies.txt LOCALLY" 插件
-# 2. 访问 YouTube.com 并登录
-# 3. 点击插件图标，导出 cookies
-# 4. 将内容复制到此文件中
-#
-# 示例格式：
-# .youtube.com	TRUE	/	FALSE	1234567890	cookie_name	cookie_value 
+# Netscape HTTP Cookie File
+# http://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file!  Do not edit.
+
+.youtube.com	TRUE	/	TRUE	1774758992	LOGIN_INFO	AFmmF2swRgIhAJ_udt17V586pE-D_ocFSEoEaM_JRz4Lc_SVG46zuV5QAiEA3HcPCjbNXiS2Kzi0zkAQsoDwMPm5nuG1Dcf7MvLAb1c:QUQ3MjNmd3lhTmphZXRBbzY4MkVzNjFNYjVOSU1QQWFFTWJYUmFCYzJQMzdQZVdXVFJnVmZLRWxvV1NJR0djWG9VWENhbEJleFg4bVhiOEJpMk96d0tWNmg5YUZmVWdxTmRUMDlKbDhKOE9vS0NmNjB1Vy1mWTg2WHdsS1MxcHRReENBOTVJX2h4RlhRNnBHXzdsQ1lsTk9rN21fSkJpdktB
+.youtube.com	TRUE	/	FALSE	1785053994	HSID	A9cC8HFemlPLarEg3
+.youtube.com	TRUE	/	TRUE	1785053994	SSID	APBhI0VDzpQSctxMC
+.youtube.com	TRUE	/	FALSE	1785053994	APISID	Zh8SRHl0vKKyJSUx/A4qZfyzTwzmuXhD55
+.youtube.com	TRUE	/	TRUE	1785053994	SAPISID	dkrcpCv6lQn7eXAk/AyIw1KgcZFP5ha6ux
+.youtube.com	TRUE	/	TRUE	1785053994	__Secure-1PAPISID	dkrcpCv6lQn7eXAk/AyIw1KgcZFP5ha6ux
+.youtube.com	TRUE	/	TRUE	1785053994	__Secure-3PAPISID	dkrcpCv6lQn7eXAk/AyIw1KgcZFP5ha6ux
+.youtube.com	TRUE	/	FALSE	1785053994	SID	g.a000yQgj7CDW5kQCwyKCrgUu_SrBZLlVIqVdL2vEQPSyQZ49L1NZwtQ0lUkBxc1dXaI6JqSjIwACgYKAQISARUSFQHGX2MizBun48hj_8YklFA4_XpYhRoVAUF8yKoeQcgXEsSk6SRuLurL3UF90076
+.youtube.com	TRUE	/	TRUE	1785053994	__Secure-1PSID	g.a000yQgj7CDW5kQCwyKCrgUu_SrBZLlVIqVdL2vEQPSyQZ49L1NZqnvh4ariNWjwF-kskdNbjQACgYKAdsSARUSFQHGX2MipIIK4KbBLYh4Rn-M8OEIbRoVAUF8yKrp1mHN_Pu5FjvJac1CKT2F0076
+.youtube.com	TRUE	/	TRUE	1785053994	__Secure-3PSID	g.a000yQgj7CDW5kQCwyKCrgUu_SrBZLlVIqVdL2vEQPSyQZ49L1NZ-rg9Y4OGNWUFLOxZh-AGSAACgYKAW8SARUSFQHGX2MimiJjmlBhX6dLJDwC5gQgARoVAUF8yKrVo0Bw7I6nzetWOrXqGQnY0076
+.youtube.com	TRUE	/	TRUE	1785594296	PREF	tz=Asia.Shanghai&f4=4000000&f5=20000&f7=100&f6=40000000
+.youtube.com	TRUE	/	TRUE	1782570294	__Secure-1PSIDTS	sidts-CjIB5H03P3WTzng84ftlKj9crwDlqAfwx0CmO42Luou2tm1N1FCzhVQQao9HvyT_oAoLpBAA
+.youtube.com	TRUE	/	TRUE	1782570294	__Secure-3PSIDTS	sidts-CjIB5H03P3WTzng84ftlKj9crwDlqAfwx0CmO42Luou2tm1N1FCzhVQQao9HvyT_oAoLpBAA
+.youtube.com	TRUE	/	FALSE	1782570313	SIDCC	AKEyXzUc1dZFjq0n7k3k5FGxvRU5Ewe-1WaWeFiYgG9MriTaSUSpGQmZ7YL1gj5yiXxBprWd96g
+.youtube.com	TRUE	/	TRUE	1782570313	__Secure-1PSIDCC	AKEyXzVeucn7MaONcV5VjRH1XXr7BQtddSOR6f24X0Ya1TGVNl6BOF-RqhEyeTHgoLDtAvA7w0c
+.youtube.com	TRUE	/	TRUE	1782570313	__Secure-3PSIDCC	AKEyXzVFqSCJve44s6Y4ItK0Km2nDR_RfZF9zyXpkEdW1_tWTanMCwMREACn0BNJJcz8coVlHvY
+.youtube.com	TRUE	/	TRUE	1766586313	VISITOR_INFO1_LIVE	PEYcJjGXRq0
+.youtube.com	TRUE	/	TRUE	1766586313	VISITOR_PRIVACY_METADATA	CgJISxIEGgAgJw%3D%3D
+.youtube.com	TRUE	/	TRUE	1766542714	__Secure-ROLLOUT_TOKEN	CIT1ucm4q5T0UBC6gIKTyNaLAxjArZTcxJCOAw%3D%3D
+.youtube.com	TRUE	/	TRUE	0	YSC	sdJvtl4U-3A
