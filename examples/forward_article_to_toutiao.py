@@ -27,7 +27,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from uploader.toutiao_uploader.main_final import TouTiaoArticle, toutiao_setup
 
 class WechatSyncStyleFormatter:
-    """参考wechatSync的格式化器 - 简洁风格版本"""
+    """优化版格式化器 - 解决空行过多、代码块显示和markdown渲染问题"""
     
     def __init__(self):
         self.code_languages = {
@@ -41,7 +41,7 @@ class WechatSyncStyleFormatter:
         }
     
     def html_to_text(self, html_content):
-        """将HTML转换为清晰的文本格式 - wechatSync简洁风格"""
+        """将HTML转换为清晰的文本格式 - 优化版"""
         if not html_content:
             return ""
         
@@ -58,7 +58,7 @@ class WechatSyncStyleFormatter:
         # 转换为文本
         result = self._element_to_text(soup)
         
-        # 后处理 - 应用简洁风格
+        # 后处理 - 优化格式
         return self._postprocess_text(result)
     
     def _preprocess_elements(self, soup):
@@ -119,7 +119,7 @@ class WechatSyncStyleFormatter:
         return ''
     
     def _element_to_text(self, element):
-        """将元素转换为文本 - wechatSync简洁风格"""
+        """将元素转换为文本 - 优化版"""
         if isinstance(element, NavigableString):
             return str(element).strip()
         
@@ -151,13 +151,13 @@ class WechatSyncStyleFormatter:
         
         text = ' '.join(children_text) if children_text else element.get_text().strip()
         
-        # 根据标签格式化 - 简洁风格
+        # 根据标签格式化 - 优化版
         if tag in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
             level = int(tag[1])
             return self._format_heading(text, level)
         
         elif tag == 'p':
-            return f"\n\n{text}" if text else ""
+            return text if text else ""  # 移除段落标签的额外换行
         
         elif tag in ['strong', 'b']:
             return f"**{text}**" if text else ""
@@ -178,10 +178,10 @@ class WechatSyncStyleFormatter:
             return "\n"
         
         elif tag == 'hr':
-            return "\n\n---\n\n"
+            return "\n---\n"
         
         elif tag in ['div', 'section', 'article']:
-            return f"\n{text}\n" if text else ""
+            return text if text else ""
         
         elif tag == 'table':
             return self._format_table(element)
@@ -190,125 +190,168 @@ class WechatSyncStyleFormatter:
             return text
     
     def _format_heading(self, text, level):
-        """格式化标题 - wechatSync简洁风格"""
+        """格式化标题 - 优化版"""
         if not text:
             return ""
         
         text = text.strip()
         
         if level == 1:
-            return f"\n\n# {text}\n\n"
+            return f"\n# {text}\n"
         elif level == 2:
-            return f"\n\n## {text}\n\n"
+            return f"\n## {text}\n"
         elif level == 3:
-            return f"\n\n### {text}\n\n"
+            return f"\n### {text}\n"
         elif level == 4:
-            return f"\n\n#### {text}\n\n"
+            return f"\n#### {text}\n"
+        elif level == 5:
+            return f"\n##### {text}\n"
         else:
-            return f"\n\n##### {text}\n\n"
+            return f"\n###### {text}\n"
     
     def _format_code_block(self, code_text, language=''):
-        """格式化代码块 - wechatSync简洁风格"""
+        """格式化代码块 - 优化版"""
         if not code_text:
             return ""
         
-        # 清理代码
-        lines = code_text.split('\n')
+        code_text = code_text.strip()
         
-        # 移除首尾空行
-        while lines and not lines[0].strip():
-            lines.pop(0)
-        while lines and not lines[-1].strip():
-            lines.pop()
-        
-        if not lines:
-            return ""
-        
-        clean_code = '\n'.join(lines)
-        
-        # 简洁的代码块格式
         if language:
-            return f"\n\n```{language}\n{clean_code}\n```\n\n"
+            lang_display = self.code_languages.get(language.lower(), language)
+            return f"\n```{language.lower()}\n{code_text}\n```\n"
         else:
-            return f"\n\n```\n{clean_code}\n```\n\n"
+            return f"\n```\n{code_text}\n```\n"
     
     def _format_list(self, element, list_type):
-        """格式化列表 - wechatSync简洁风格"""
+        """格式化列表 - 优化版"""
         items = []
+        
         for i, li in enumerate(element.find_all('li', recursive=False), 1):
-            item_text = self._element_to_text(li).strip()
-            if item_text:
+            li_text = self._element_to_text(li)
+            if li_text:
                 if list_type == 'ol':
-                    items.append(f"{i}. {item_text}")
+                    items.append(f"{i}. {li_text}")
                 else:
-                    items.append(f"- {item_text}")
+                    items.append(f"- {li_text}")
         
         if items:
-            return f"\n\n" + '\n'.join(items) + "\n\n"
+            return f"\n" + "\n".join(items) + "\n"
         return ""
     
     def _format_quote(self, text):
-        """格式化引用 - wechatSync简洁风格"""
+        """格式化引用 - 优化版"""
         if not text:
             return ""
         
+        text = text.strip()
         lines = text.split('\n')
-        quoted_lines = []
-        
-        for line in lines:
-            line = line.strip()
-            if line:
-                quoted_lines.append(f"> {line}")
+        quoted_lines = [f"> {line.strip()}" for line in lines if line.strip()]
         
         if quoted_lines:
-            return f"\n\n" + '\n'.join(quoted_lines) + "\n\n"
+            return f"\n" + "\n".join(quoted_lines) + "\n"
         return ""
     
     def _format_table(self, table_element):
-        """格式化表格 - 简化版"""
-        result = "\n\n**表格:**\n\n"
+        """格式化表格 - 优化版"""
+        if not table_element:
+            return ""
         
-        rows = table_element.find_all('tr')
-        for i, row in enumerate(rows):
-            cells = row.find_all(['td', 'th'])
-            if cells:
-                row_text = ' | '.join(cell.get_text().strip() for cell in cells)
-                if i == 0:  # 表头
-                    result += f"| {row_text} |\n"
-                    result += "|" + " --- |" * len(cells) + "\n"
-                else:
-                    result += f"| {row_text} |\n"
-        
-        result += "\n"
-        return result
+        table_text = table_element.get_text().strip()
+        return f"\n{table_text}\n" if table_text else ""
     
     def _postprocess_text(self, text):
-        """后处理文本 - wechatSync简洁风格"""
+        """后处理文本 - 优化版，解决空行过多问题"""
         if not text:
             return ""
         
-        # 1. 清理多余的空行
-        text = re.sub(r'\n{4,}', '\n\n\n', text)
-        text = re.sub(r'\n{3}', '\n\n', text)
+        # 统一换行符
+        text = text.replace('\r\n', '\n').replace('\r', '\n')
         
-        # 2. 确保标题前后有适当的空行
-        text = re.sub(r'([^\n])\n(#{1,6}\s)', r'\1\n\n\2', text)
-        text = re.sub(r'(#{1,6}\s[^\n]*)\n([^\n#])', r'\1\n\n\2', text)
+        # 先做基础的空行清理
+        text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
         
-        # 3. 确保代码块前后有适当空行
-        text = re.sub(r'([^\n])\n(```)', r'\1\n\n\2', text)
-        text = re.sub(r'(```)\n([^\n])', r'\1\n\n\2', text)
+        # 处理段落内容，智能添加换行
+        lines = text.split('\n')
+        processed_lines = []
         
-        # 4. 确保列表前后有适当的空行
-        text = re.sub(r'([^\n])\n([-*+]\s|\d+\.\s)', r'\1\n\n\2', text)
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            processed_lines.append(line)
+            
+            # 如果是标题，确保后面有空行
+            if re.match(r'^#{1,6}\s', line):
+                if i < len(lines) - 1 and lines[i + 1].strip():
+                    processed_lines.append('')
+            
+            # 如果是代码块开始标记
+            elif line.strip().startswith('```'):
+                # 找到代码块结束标记
+                j = i + 1
+                while j < len(lines) and not lines[j].strip().startswith('```'):
+                    j += 1
+                
+                # 复制代码块内容
+                for k in range(i + 1, j + 1):
+                    if k < len(lines):
+                        processed_lines.append(lines[k])
+                
+                # 确保代码块后有空行
+                if j < len(lines) - 1 and lines[j + 1].strip():
+                    processed_lines.append('')
+                
+                i = j  # 跳过已处理的代码块
+            
+            # 如果是列表项，不添加额外空行
+            elif re.match(r'^[-*+]\s', line.strip()) or re.match(r'^\d+\.\s', line.strip()):
+                pass  # 列表项之间不添加空行
+            
+            # 如果是引用，不添加额外空行
+            elif line.strip().startswith('>'):
+                pass  # 引用行之间不添加空行
+            
+            # 普通文本行的处理
+            elif line.strip():
+                # 检查下一行是否也是普通文本且够长
+                if (i < len(lines) - 1 and 
+                    lines[i + 1].strip() and
+                    len(line.strip()) > 50 and  # 当前行足够长
+                    len(lines[i + 1].strip()) > 50 and  # 下一行也足够长
+                    not lines[i + 1].startswith(('#', '>', '-', '*', '+', '```', '|')) and
+                    not line.endswith(('。', '！', '？', '；', '：', '，'))):  # 不是句子结尾
+                    processed_lines.append('')  # 添加空行分隔段落
+            
+            i += 1
         
-        # 5. 确保引用前后有适当的空行
-        text = re.sub(r'([^\n])\n(>\s)', r'\1\n\n\2', text)
+        result = '\n'.join(processed_lines)
         
-        return text.strip()
+        # 最终清理
+        # 清理标题前后的多余空行
+        result = re.sub(r'\n+(#{1,6}\s)', r'\n\n\1', result)
+        result = re.sub(r'(#{1,6}\s[^\n]*)\n+', r'\1\n\n', result)
+        
+        # 清理代码块前后的多余空行
+        result = re.sub(r'\n+(```)', r'\n\n\1', result)
+        result = re.sub(r'(```[^\n]*\n[\s\S]*?\n```)\n+', r'\1\n\n', result)
+        
+        # 确保列表前后有适当的空行
+        result = re.sub(r'\n+([-*+]\s)', r'\n\n\1', result)
+        result = re.sub(r'((?:^[-*+]\s[^\n]*\n)+)\n*', r'\1\n', result, flags=re.MULTILINE)
+        
+        # 确保引用前后有适当的空行
+        result = re.sub(r'\n+(>\s)', r'\n\n\1', result)
+        result = re.sub(r'((?:^>\s[^\n]*\n)+)\n*', r'\1\n', result, flags=re.MULTILINE)
+        
+        # 最终清理：确保没有超过两个连续的空行
+        result = re.sub(r'\n{3,}', '\n\n', result)
+        
+        # 清理开头和结尾的空行
+        result = result.strip()
+        
+        return result
     
     def markdown_to_text(self, markdown_content):
-        """将Markdown转换为文本格式 - wechatSync简洁风格"""
+        """将Markdown转换为文本格式 - 优化版"""
         if not markdown_content:
             return ""
         
@@ -327,16 +370,16 @@ class WechatSyncStyleFormatter:
             return self._simple_markdown_to_text(markdown_content)
     
     def _simple_markdown_to_text(self, text):
-        """简化的Markdown到文本转换 - wechatSync简洁风格"""
+        """简化的Markdown到文本转换 - 优化版"""
         if not text:
             return ""
         
         # 处理标题
-        text = re.sub(r'^#{1}\s+(.+)$', r'\n\n# \1\n\n', text, flags=re.MULTILINE)
-        text = re.sub(r'^#{2}\s+(.+)$', r'\n\n## \1\n\n', text, flags=re.MULTILINE)
-        text = re.sub(r'^#{3}\s+(.+)$', r'\n\n### \1\n\n', text, flags=re.MULTILINE)
-        text = re.sub(r'^#{4}\s+(.+)$', r'\n\n#### \1\n\n', text, flags=re.MULTILINE)
-        text = re.sub(r'^#{5,6}\s+(.+)$', r'\n\n##### \1\n\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{1}\s+(.+)$', r'\n# \1\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{2}\s+(.+)$', r'\n## \1\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{3}\s+(.+)$', r'\n### \1\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{4}\s+(.+)$', r'\n#### \1\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{5,6}\s+(.+)$', r'\n##### \1\n', text, flags=re.MULTILINE)
         
         # 处理代码块
         def replace_code_block(match):
@@ -358,7 +401,7 @@ class WechatSyncStyleFormatter:
         
         # 处理列表
         text = re.sub(r'^[-*+]\s+(.+)$', r'- \1', text, flags=re.MULTILINE)
-        text = re.sub(r'^(\d+)\.\s+(.+)$', r'\1. \2', text, flags=re.MULTILINE)
+        text = re.sub(r'^\d+\.\s+(.+)$', r'1. \1', text, flags=re.MULTILINE)
         
         # 处理链接
         text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'[\1](\2)', text)
@@ -366,7 +409,7 @@ class WechatSyncStyleFormatter:
         # 处理分隔线
         text = re.sub(r'^---+$', '---', text, flags=re.MULTILINE)
         
-        # 最终清理
+        # 后处理
         return self._postprocess_text(text)
 
 class EnhancedArticleForwarder:
