@@ -64,7 +64,7 @@ async def douyin_cookie_gen(account_file):
 
 
 class DouYinVideo(object):
-    def __init__(self, title, file_path, tags, publish_date: datetime, account_file, thumbnail_path=None):
+    def __init__(self, title, file_path, tags, publish_date: datetime, account_file, thumbnail_path=None, proxy_setting=None):
         self.title = title  # 视频标题
         self.file_path = file_path
         self.tags = tags
@@ -74,6 +74,7 @@ class DouYinVideo(object):
         self.local_executable_path = LOCAL_CHROME_PATH
         self.thumbnail_path = thumbnail_path
         self.default_location = "北京市"  # 默认地理位置
+        self.proxy_setting = proxy_setting
 
     async def set_schedule_time_douyin(self, page, publish_date):
         # 选择包含特定文本内容的 label 元素
@@ -96,13 +97,51 @@ class DouYinVideo(object):
         await page.locator('div.progress-div [class^="upload-btn-input"]').set_input_files(self.file_path)
 
     async def upload(self, playwright: Playwright) -> None:
-        # 使用 Chromium 浏览器启动一个浏览器实例
+        # 使用 Chromium 浏览器启动一个浏览器实例，支持代理
+        launch_options = {
+            "headless": False,
+            "args": [
+                "--disable-blink-features=AutomationControlled",
+                "--exclude-switches=enable-automation",
+                "--disable-extensions-except=",
+                "--disable-extensions",
+                "--no-sandbox",
+                "--disable-web-security",
+                "--disable-features=VizDisplayCompositor"
+            ]
+        }
+        
         if self.local_executable_path:
-            browser = await playwright.chromium.launch(headless=False, executable_path=self.local_executable_path)
-        else:
-            browser = await playwright.chromium.launch(headless=False)
-        # 创建一个浏览器上下文，使用指定的 cookie 文件
-        context = await browser.new_context(storage_state=f"{self.account_file}")
+            launch_options["executable_path"] = self.local_executable_path
+            
+        if self.proxy_setting:
+            launch_options["proxy"] = self.proxy_setting
+            
+        browser = await playwright.chromium.launch(**launch_options)
+        
+        # 创建一个浏览器上下文，使用指定的 cookie 文件和反检测设置
+        context = await browser.new_context(
+            storage_state=f"{self.account_file}",
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.6533.120 Safari/537.36',
+            viewport={"width": 1920, "height": 1080},
+            extra_http_headers={
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            }
+        )
+        
+        # 添加额外的反检测脚本
+        await context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN', 'zh', 'en']});
+            window.chrome = {runtime: {}};
+            Object.defineProperty(navigator, 'permissions', {get: () => ({query: () => Promise.resolve({state: 'granted'})})});
+        """)
+        
         context = await set_init_script(context)
 
         # 创建一个新的页面
