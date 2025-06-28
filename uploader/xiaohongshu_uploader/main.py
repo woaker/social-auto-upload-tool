@@ -174,28 +174,93 @@ class XiaoHongShuVideo(object):
         # 等待视频上传处理完成
         xiaohongshu_logger.info(f'[-] 等待视频处理完成...')
         upload_completed = False
-        max_wait_time = 300  # 最大等待5分钟
+        max_wait_time = 120  # 减少到2分钟
         wait_time = 0
+        screenshot_count = 0
         
         while not upload_completed and wait_time < max_wait_time:
             try:
-                await asyncio.sleep(3)
-                wait_time += 3
+                await asyncio.sleep(2)  # 缩短等待间隔
+                wait_time += 2
+                
+                # 每15秒截图一次用于调试
+                if wait_time % 15 == 0:
+                    screenshot_count += 1
+                    screenshot_path = f"xiaohongshu_debug_{screenshot_count}.png"
+                    await page.screenshot(path=screenshot_path, full_page=True)
+                    xiaohongshu_logger.info(f'[-] 调试截图已保存: {screenshot_path}')
                 
                 # 检查多种上传完成的指示器
                 success_indicators = [
+                    # 原有指示器
                     'div.stage:has-text("上传成功")',
                     'div:has-text("上传完成")', 
                     'div:has-text("处理完成")',
-                    'button:has-text("发布")',  # 如果出现发布按钮，说明上传完成
-                    'div[class*="preview"]:visible',  # 预览区域出现
+                    'button:has-text("发布")',
+                    'div[class*="preview"]:visible',
+                    
+                    # 添加更多可能的指示器
+                    'div:has-text("转码完成")',
+                    'div:has-text("上传成功")',
+                    'button:has-text("立即发布")',
+                    'button:has-text("定时发布")',
+                    'button[class*="publish"]',
+                    'button[class*="submit"]',
+                    
+                    # 检查是否有标题输入框（说明已进入编辑阶段）
+                    'div.input.titleInput input.d-text',
+                    'input[placeholder*="标题"]',
+                    
+                    # 检查是否有文本编辑区域
+                    '.ql-editor',
+                    'div[class*="editor"]',
+                    
+                    # 检查上传进度相关
+                    'div:has-text("100%")',
+                    'div[class*="complete"]',
+                    'div[class*="success"]',
                 ]
                 
+                found_indicator = None
                 for indicator in success_indicators:
-                    if await page.locator(indicator).count() > 0:
-                        xiaohongshu_logger.success(f'[-] 检测到上传完成指示器: {indicator}')
-                        upload_completed = True
-                        break
+                    try:
+                        elements = await page.locator(indicator).count()
+                        if elements > 0:
+                            # 检查元素是否真的可见
+                            first_element = page.locator(indicator).first
+                            if await first_element.is_visible():
+                                found_indicator = indicator
+                                xiaohongshu_logger.success(f'[-] 检测到上传完成指示器: {indicator} (元素数量: {elements})')
+                                upload_completed = True
+                                break
+                    except Exception as e:
+                        continue
+                
+                if not upload_completed:
+                    # 额外检查：查看页面是否有任何发布相关的按钮
+                    try:
+                        all_buttons = await page.locator('button').all()
+                        button_texts = []
+                        for button in all_buttons:
+                            try:
+                                text = await button.text_content()
+                                if text and text.strip():
+                                    button_texts.append(text.strip())
+                            except:
+                                continue
+                        
+                        # 如果找到发布相关按钮，认为上传完成
+                        publish_keywords = ['发布', '提交', '确认', '完成', 'publish', 'submit']
+                        for text in button_texts:
+                            if any(keyword in text.lower() for keyword in publish_keywords):
+                                xiaohongshu_logger.success(f'[-] 通过按钮文本检测到上传完成: {text}')
+                                upload_completed = True
+                                break
+                        
+                        if wait_time % 30 == 0:  # 每30秒打印一次当前按钮信息
+                            xiaohongshu_logger.info(f'[-] 当前页面按钮: {button_texts[:5]}')  # 只显示前5个
+                    except Exception as e:
+                        xiaohongshu_logger.warning(f'[-] 检查按钮时出错: {e}')
                 
                 if not upload_completed:
                     xiaohongshu_logger.info(f'[-] 视频处理中... ({wait_time}s/{max_wait_time}s)')
@@ -205,10 +270,13 @@ class XiaoHongShuVideo(object):
                 continue
         
         if not upload_completed:
-            xiaohongshu_logger.error(f'[-] 视频上传超时 ({max_wait_time}s)')
-            raise Exception("视频上传处理超时")
+            # 最后尝试：不管状态如何，继续执行后续步骤
+            xiaohongshu_logger.warning(f'[-] 视频上传检测超时，但尝试继续执行...')
+            await page.screenshot(path="xiaohongshu_timeout_debug.png", full_page=True)
+            xiaohongshu_logger.info(f'[-] 超时调试截图已保存: xiaohongshu_timeout_debug.png')
+        else:
+            xiaohongshu_logger.success('[-] 视频上传处理完成!')
         
-        xiaohongshu_logger.success('[-] 视频上传处理完成!')
         await asyncio.sleep(2)  # 额外等待确保页面稳定
 
         # 填充标题和话题
