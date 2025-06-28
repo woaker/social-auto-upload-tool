@@ -111,322 +111,406 @@ class XiaoHongShuVideo(object):
         # 使用增强版云服务器优化配置
         launch_options, env = get_browser_config()
         
+        # 添加额外的稳定性配置（与抖音相同）
+        launch_options["args"].extend([
+            "--disable-background-networking",
+            "--disable-client-side-phishing-detection", 
+            "--disable-sync",
+            "--disable-translate",
+            "--disable-ipc-flooding-protection",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-default-apps"
+        ])
+        
         if self.local_executable_path:
             launch_options["executable_path"] = self.local_executable_path
             
-        browser = await playwright.chromium.launch(**launch_options)
+        browser = None
+        context = None  
+        page = None
         
-        # 使用增强版上下文配置
-        context_config = get_context_config()
-        context_config["storage_state"] = f"{self.account_file}"
-        context_config["viewport"] = {"width": 1600, "height": 900}  # 保持小红书特定的视口大小
-        
-        context = await browser.new_context(**context_config)
-        
-        # 使用增强版反检测脚本
-        await context.add_init_script(get_anti_detection_script())
-        
-        context = await set_init_script(context)
-
-        # 创建一个新的页面
-        page = await context.new_page()
-        
-        # 增强反检测：模拟人类行为
-        await page.add_init_script("""
-            // 更强的反检测脚本
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN', 'zh', 'en']});
-            window.chrome = {runtime: {}};
-            Object.defineProperty(navigator, 'permissions', {get: () => ({query: () => Promise.resolve({state: 'granted'})})});
-            
-            // 随机化时间函数
-            const originalDateNow = Date.now;
-            Date.now = () => originalDateNow() + Math.floor(Math.random() * 1000);
-            
-            // 模拟真实的用户代理
-            Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 4});
-            Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
-            Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
-        """)
-        
-        # 访问指定的 URL
-        await page.goto("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video")
-        xiaohongshu_logger.info(f'[+]正在上传-------{self.title}.mp4')
-        
-        # 模拟人类行为：随机鼠标移动
-        await page.mouse.move(100, 100)
-        await asyncio.sleep(1)
-        await page.mouse.move(200, 150)
-        await asyncio.sleep(0.5)
-        
-        # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
-        xiaohongshu_logger.info(f'[-] 正在打开主页...')
-        await page.wait_for_url("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video")
-        
-        # 检查是否被重定向到登录页面
-        current_url = page.url
-        if 'login' in current_url.lower() or await page.locator('text="登录"').count() > 0:
-            xiaohongshu_logger.error("❌ 检测到登录页面，Cookie可能已失效!")
-            await page.screenshot(path="xiaohongshu_login_redirect.png", full_page=True)
-            raise Exception("被重定向到登录页面，需要重新获取Cookie")
-        
-        # 等待上传区域加载完成
-        await asyncio.sleep(3)  # 增加等待时间
-        
-        # 模拟更多人类行为
-        await page.mouse.move(300, 200)
-        await asyncio.sleep(1)
-        
-        # 查找并上传视频文件
-        xiaohongshu_logger.info(f'[-] 正在选择视频文件...')
         try:
-            # 多种可能的选择器
-            upload_selectors = [
-                "div[class^='upload-content'] input[class='upload-input']",
-                "input.upload-input",
-                "input[type='file'][class*='upload']",
-                "input[accept*='video']"
-            ]
+            xiaohongshu_logger.info("🚀 启动浏览器...")
+            browser = await playwright.chromium.launch(**launch_options)
             
-            upload_success = False
-            for selector in upload_selectors:
-                try:
-                    upload_element = await page.wait_for_selector(selector, timeout=5000)
-                    if upload_element:
-                        await upload_element.set_input_files(self.file_path)
-                        xiaohongshu_logger.info(f'[-] 视频文件上传成功，使用选择器: {selector}')
-                        upload_success = True
-                        break
-                except Exception as e:
-                    xiaohongshu_logger.warning(f'[-] 选择器 {selector} 失败: {e}')
-                    continue
+            # 使用增强版上下文配置
+            context_config = get_context_config()
+            context_config["storage_state"] = f"{self.account_file}"
+            context_config["viewport"] = {"width": 1600, "height": 900}  # 保持小红书特定的视口大小
             
-            if not upload_success:
-                raise Exception("无法找到视频上传元素")
-                
-        except Exception as e:
-            xiaohongshu_logger.error(f'[-] 视频上传失败: {e}')
-            raise
+            xiaohongshu_logger.info("🔧 创建浏览器上下文...")
+            context = await browser.new_context(**context_config)
+            
+            # 使用增强版反检测脚本
+            await context.add_init_script(get_anti_detection_script())
+            
+            context = await set_init_script(context)
 
-        # 等待视频上传处理完成
-        xiaohongshu_logger.info(f'[-] 等待视频处理完成...')
-        upload_completed = False
-        max_wait_time = 120  # 减少到2分钟
-        wait_time = 0
-        screenshot_count = 0
-        
-        while not upload_completed and wait_time < max_wait_time:
+            # 创建一个新的页面
+            xiaohongshu_logger.info("📄 创建新页面...")
+            page = await context.new_page()
+            
+            # 添加页面级别的反检测（与抖音相同）
+            await page.add_init_script("""
+                // 最强的页面级反检测脚本
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined,
+                    configurable: true
+                });
+                
+                // 删除自动化相关属性
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+                
+                // 伪造更真实的navigator
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['zh-CN', 'zh', 'en-US', 'en'],
+                    configurable: true
+                });
+                
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5],
+                    configurable: true
+                });
+                
+                // 额外的小红书特定反检测
+                window.chrome = {runtime: {}};
+                Object.defineProperty(navigator, 'permissions', {
+                    get: () => ({query: () => Promise.resolve({state: 'granted'})}),
+                    configurable: true
+                });
+                
+                // 随机化时间函数
+                const originalDateNow = Date.now;
+                Date.now = () => originalDateNow() + Math.floor(Math.random() * 1000);
+                
+                // 模拟真实的硬件信息
+                Object.defineProperty(navigator, 'hardwareConcurrency', {
+                    get: () => 4,
+                    configurable: true
+                });
+                Object.defineProperty(navigator, 'deviceMemory', {
+                    get: () => 8,
+                    configurable: true
+                });
+                Object.defineProperty(navigator, 'platform', {
+                    get: () => 'Win32',
+                    configurable: true
+                });
+                Object.defineProperty(navigator, 'maxTouchPoints', {
+                    get: () => 1,
+                    configurable: true
+                });
+            """)
+            
+            # 访问指定的 URL
+            xiaohongshu_logger.info("🌐 访问小红书创作者中心...")
+            await page.goto("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video", 
+                           wait_until="load", timeout=30000)
+            xiaohongshu_logger.info(f'[+]正在上传-------{self.title}.mp4')
+            
+            # 模拟人类行为：随机鼠标移动
+            await page.mouse.move(100, 100)
+            await asyncio.sleep(1)
+            await page.mouse.move(200, 150)
+            await asyncio.sleep(0.5)
+            
+            # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
+            xiaohongshu_logger.info(f'[-] 正在打开主页...')
+            await page.wait_for_url("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video")
+            
+            # 检查是否被重定向到登录页面
+            current_url = page.url
+            if 'login' in current_url.lower() or await page.locator('text="登录"').count() > 0:
+                xiaohongshu_logger.error("❌ 检测到登录页面，Cookie可能已失效!")
+                await page.screenshot(path="xiaohongshu_login_redirect.png", full_page=True)
+                raise Exception("被重定向到登录页面，需要重新获取Cookie")
+            
+            # 等待上传区域加载完成
+            await asyncio.sleep(3)  # 增加等待时间
+            
+            # 模拟更多人类行为
+            await page.mouse.move(300, 200)
+            await asyncio.sleep(1)
+            
+            # 查找并上传视频文件
+            xiaohongshu_logger.info(f'[-] 正在选择视频文件...')
             try:
-                await asyncio.sleep(2)  # 缩短等待间隔
-                wait_time += 2
-                
-                # 首先检查是否被重定向到登录页面
-                login_indicators = [
-                    'text="登录"',
-                    'text="手机号登录"', 
-                    'text="扫码登录"',
-                    'button:has-text("登录")',
-                    'a:has-text("登录")'
+                # 多种可能的选择器
+                upload_selectors = [
+                    "div[class^='upload-content'] input[class='upload-input']",
+                    "input.upload-input",
+                    "input[type='file'][class*='upload']",
+                    "input[accept*='video']"
                 ]
                 
-                is_logged_out = False
-                for login_indicator in login_indicators:
-                    if await page.locator(login_indicator).count() > 0:
-                        xiaohongshu_logger.error(f"❌ 检测到登录页面元素: {login_indicator}")
-                        is_logged_out = True
-                        break
-                
-                if is_logged_out:
-                    await page.screenshot(path=f"xiaohongshu_logout_detected_{wait_time}s.png", full_page=True)
-                    xiaohongshu_logger.error("❌ 在上传过程中被强制登出，可能被反自动化系统检测到")
-                    raise Exception("被重定向到登录页面，请重新获取Cookie并重试")
-                
-                # 每15秒截图一次用于调试
-                if wait_time % 15 == 0:
-                    screenshot_count += 1
-                    screenshot_path = f"xiaohongshu_debug_{screenshot_count}.png"
-                    await page.screenshot(path=screenshot_path, full_page=True)
-                    xiaohongshu_logger.info(f'[-] 调试截图已保存: {screenshot_path}')
-                
-                # 检查多种上传完成的指示器
-                success_indicators = [
-                    # 原有指示器
-                    'div.stage:has-text("上传成功")',
-                    'div:has-text("上传完成")', 
-                    'div:has-text("处理完成")',
-                    'button:has-text("发布")',
-                    'div[class*="preview"]:visible',
-                    
-                    # 添加更多可能的指示器
-                    'div:has-text("转码完成")',
-                    'div:has-text("上传成功")',
-                    'button:has-text("立即发布")',
-                    'button:has-text("定时发布")',
-                    'button[class*="publish"]',
-                    'button[class*="submit"]',
-                    
-                    # 检查是否有标题输入框（说明已进入编辑阶段）
-                    'div.input.titleInput input.d-text',
-                    'input[placeholder*="标题"]',
-                    
-                    # 检查是否有文本编辑区域
-                    '.ql-editor',
-                    'div[class*="editor"]',
-                    
-                    # 检查上传进度相关
-                    'div:has-text("100%")',
-                    'div[class*="complete"]',
-                    'div[class*="success"]',
-                ]
-                
-                found_indicator = None
-                for indicator in success_indicators:
+                upload_success = False
+                for selector in upload_selectors:
                     try:
-                        elements = await page.locator(indicator).count()
-                        if elements > 0:
-                            # 检查元素是否真的可见
-                            first_element = page.locator(indicator).first
-                            if await first_element.is_visible():
-                                found_indicator = indicator
-                                xiaohongshu_logger.success(f'[-] 检测到上传完成指示器: {indicator} (元素数量: {elements})')
-                                upload_completed = True
-                                break
+                        upload_element = await page.wait_for_selector(selector, timeout=5000)
+                        if upload_element:
+                            await upload_element.set_input_files(self.file_path)
+                            xiaohongshu_logger.info(f'[-] 视频文件上传成功，使用选择器: {selector}')
+                            upload_success = True
+                            break
                     except Exception as e:
+                        xiaohongshu_logger.warning(f'[-] 选择器 {selector} 失败: {e}')
                         continue
                 
-                if not upload_completed:
-                    # 额外检查：查看页面是否有任何发布相关的按钮
-                    try:
-                        all_buttons = await page.locator('button').all()
-                        button_texts = []
-                        for button in all_buttons:
-                            try:
-                                text = await button.text_content()
-                                if text and text.strip():
-                                    button_texts.append(text.strip())
-                            except:
-                                continue
-                        
-                        # 如果找到发布相关按钮，认为上传完成
-                        publish_keywords = ['发布', '提交', '确认', '完成', 'publish', 'submit']
-                        for text in button_texts:
-                            if any(keyword in text.lower() for keyword in publish_keywords):
-                                xiaohongshu_logger.success(f'[-] 通过按钮文本检测到上传完成: {text}')
-                                upload_completed = True
-                                break
-                        
-                        if wait_time % 30 == 0:  # 每30秒打印一次当前按钮信息
-                            xiaohongshu_logger.info(f'[-] 当前页面按钮: {button_texts[:5]}')  # 只显示前5个
-                    except Exception as e:
-                        xiaohongshu_logger.warning(f'[-] 检查按钮时出错: {e}')
-                
-                if not upload_completed:
-                    xiaohongshu_logger.info(f'[-] 视频处理中... ({wait_time}s/{max_wait_time}s)')
+                if not upload_success:
+                    raise Exception("无法找到视频上传元素")
                     
             except Exception as e:
-                xiaohongshu_logger.warning(f'[-] 检测上传状态时出错: {e}')
-                continue
-        
-        if not upload_completed:
-            # 最后尝试：不管状态如何，继续执行后续步骤
-            xiaohongshu_logger.warning(f'[-] 视频上传检测超时，但尝试继续执行...')
-            await page.screenshot(path="xiaohongshu_timeout_debug.png", full_page=True)
-            xiaohongshu_logger.info(f'[-] 超时调试截图已保存: xiaohongshu_timeout_debug.png')
-        else:
-            xiaohongshu_logger.success('[-] 视频上传处理完成!')
-        
-        await asyncio.sleep(2)  # 额外等待确保页面稳定
+                xiaohongshu_logger.error(f'[-] 视频上传失败: {e}')
+                raise
 
-        # 填充标题和话题
-        # 检查是否存在包含输入框的元素
-        # 这里为了避免页面变化，故使用相对位置定位：作品标题父级右侧第一个元素的input子元素
-        await asyncio.sleep(1)
-        xiaohongshu_logger.info(f'  [-] 正在填充标题和话题...')
-        
-        # 小红书标题长度限制为20个字符，超出则自动截取
-        truncated_title = self.title[:20] if len(self.title) > 20 else self.title
-        if len(self.title) > 20:
-            xiaohongshu_logger.info(f'  [-] 标题长度超过20字符，已自动截取: {self.title} -> {truncated_title}')
-        
-        title_container = page.locator('div.input.titleInput').locator('input.d-text')
-        if await title_container.count():
-            await title_container.fill(truncated_title)
-        else:
-            titlecontainer = page.locator(".notranslate")
-            await titlecontainer.click()
-            await page.keyboard.press("Backspace")
-            await page.keyboard.press("Control+KeyA")
-            await page.keyboard.press("Delete")
-            await page.keyboard.type(truncated_title)
-            await page.keyboard.press("Enter")
-        css_selector = ".ql-editor" # 不能加上 .ql-blank 属性，这样只能获取第一次非空状态
-        for index, tag in enumerate(self.tags, start=1):
-            await page.type(css_selector, "#" + tag)
-            await page.press(css_selector, "Space")
-        xiaohongshu_logger.info(f'总共添加{len(self.tags)}个话题')
+            # 等待视频上传处理完成
+            xiaohongshu_logger.info(f'[-] 等待视频处理完成...')
+            upload_completed = False
+            max_wait_time = 120  # 减少到2分钟
+            wait_time = 0
+            screenshot_count = 0
+            
+            while not upload_completed and wait_time < max_wait_time:
+                try:
+                    await asyncio.sleep(2)  # 缩短等待间隔
+                    wait_time += 2
+                    
+                    # 首先检查是否被重定向到登录页面
+                    login_indicators = [
+                        'text="登录"',
+                        'text="手机号登录"', 
+                        'text="扫码登录"',
+                        'button:has-text("登录")',
+                        'a:has-text("登录")'
+                    ]
+                    
+                    is_logged_out = False
+                    for login_indicator in login_indicators:
+                        if await page.locator(login_indicator).count() > 0:
+                            xiaohongshu_logger.error(f"❌ 检测到登录页面元素: {login_indicator}")
+                            is_logged_out = True
+                            break
+                    
+                    if is_logged_out:
+                        await page.screenshot(path=f"xiaohongshu_logout_detected_{wait_time}s.png", full_page=True)
+                        xiaohongshu_logger.error("❌ 在上传过程中被强制登出，可能被反自动化系统检测到")
+                        raise Exception("被重定向到登录页面，请重新获取Cookie并重试")
+                    
+                    # 每15秒截图一次用于调试
+                    if wait_time % 15 == 0:
+                        screenshot_count += 1
+                        screenshot_path = f"xiaohongshu_debug_{screenshot_count}.png"
+                        await page.screenshot(path=screenshot_path, full_page=True)
+                        xiaohongshu_logger.info(f'[-] 调试截图已保存: {screenshot_path}')
+                    
+                    # 检查多种上传完成的指示器
+                    success_indicators = [
+                        # 原有指示器
+                        'div.stage:has-text("上传成功")',
+                        'div:has-text("上传完成")', 
+                        'div:has-text("处理完成")',
+                        'button:has-text("发布")',
+                        'div[class*="preview"]:visible',
+                        
+                        # 添加更多可能的指示器
+                        'div:has-text("转码完成")',
+                        'div:has-text("上传成功")',
+                        'button:has-text("立即发布")',
+                        'button:has-text("定时发布")',
+                        'button[class*="publish"]',
+                        'button[class*="submit"]',
+                        
+                        # 检查是否有标题输入框（说明已进入编辑阶段）
+                        'div.input.titleInput input.d-text',
+                        'input[placeholder*="标题"]',
+                        
+                        # 检查是否有文本编辑区域
+                        '.ql-editor',
+                        'div[class*="editor"]',
+                        
+                        # 检查上传进度相关
+                        'div:has-text("100%")',
+                        'div[class*="complete"]',
+                        'div[class*="success"]',
+                    ]
+                    
+                    found_indicator = None
+                    for indicator in success_indicators:
+                        try:
+                            elements = await page.locator(indicator).count()
+                            if elements > 0:
+                                # 检查元素是否真的可见
+                                first_element = page.locator(indicator).first
+                                if await first_element.is_visible():
+                                    found_indicator = indicator
+                                    xiaohongshu_logger.success(f'[-] 检测到上传完成指示器: {indicator} (元素数量: {elements})')
+                                    upload_completed = True
+                                    break
+                        except Exception as e:
+                            continue
+                    
+                    if not upload_completed:
+                        # 额外检查：查看页面是否有任何发布相关的按钮
+                        try:
+                            all_buttons = await page.locator('button').all()
+                            button_texts = []
+                            for button in all_buttons:
+                                try:
+                                    text = await button.text_content()
+                                    if text and text.strip():
+                                        button_texts.append(text.strip())
+                                except:
+                                    continue
+                            
+                            # 如果找到发布相关按钮，认为上传完成
+                            publish_keywords = ['发布', '提交', '确认', '完成', 'publish', 'submit']
+                            for text in button_texts:
+                                if any(keyword in text.lower() for keyword in publish_keywords):
+                                    xiaohongshu_logger.success(f'[-] 通过按钮文本检测到上传完成: {text}')
+                                    upload_completed = True
+                                    break
+                            
+                            if wait_time % 30 == 0:  # 每30秒打印一次当前按钮信息
+                                xiaohongshu_logger.info(f'[-] 当前页面按钮: {button_texts[:5]}')  # 只显示前5个
+                        except Exception as e:
+                            xiaohongshu_logger.warning(f'[-] 检查按钮时出错: {e}')
+                    
+                    if not upload_completed:
+                        xiaohongshu_logger.info(f'[-] 视频处理中... ({wait_time}s/{max_wait_time}s)')
+                        
+                except Exception as e:
+                    xiaohongshu_logger.warning(f'[-] 检测上传状态时出错: {e}')
+                    continue
+            
+            if not upload_completed:
+                # 最后尝试：不管状态如何，继续执行后续步骤
+                xiaohongshu_logger.warning(f'[-] 视频上传检测超时，但尝试继续执行...')
+                await page.screenshot(path="xiaohongshu_timeout_debug.png", full_page=True)
+                xiaohongshu_logger.info(f'[-] 超时调试截图已保存: xiaohongshu_timeout_debug.png')
+            else:
+                xiaohongshu_logger.success('[-] 视频上传处理完成!')
+            
+            await asyncio.sleep(2)  # 额外等待确保页面稳定
 
-        # while True:
-        #     # 判断重新上传按钮是否存在，如果不存在，代表视频正在上传，则等待
-        #     try:
-        #         #  新版：定位重新上传
-        #         number = await page.locator('[class^="long-card"] div:has-text("重新上传")').count()
-        #         if number > 0:
-        #             xiaohongshu_logger.success("  [-]视频上传完毕")
-        #             break
-        #         else:
-        #             xiaohongshu_logger.info("  [-] 正在上传视频中...")
-        #             await asyncio.sleep(2)
+            # 填充标题和话题
+            # 检查是否存在包含输入框的元素
+            # 这里为了避免页面变化，故使用相对位置定位：作品标题父级右侧第一个元素的input子元素
+            await asyncio.sleep(1)
+            xiaohongshu_logger.info(f'  [-] 正在填充标题和话题...')
+            
+            # 小红书标题长度限制为20个字符，超出则自动截取
+            truncated_title = self.title[:20] if len(self.title) > 20 else self.title
+            if len(self.title) > 20:
+                xiaohongshu_logger.info(f'  [-] 标题长度超过20字符，已自动截取: {self.title} -> {truncated_title}')
+            
+            title_container = page.locator('div.input.titleInput').locator('input.d-text')
+            if await title_container.count():
+                await title_container.fill(truncated_title)
+            else:
+                titlecontainer = page.locator(".notranslate")
+                await titlecontainer.click()
+                await page.keyboard.press("Backspace")
+                await page.keyboard.press("Control+KeyA")
+                await page.keyboard.press("Delete")
+                await page.keyboard.type(truncated_title)
+                await page.keyboard.press("Enter")
+            css_selector = ".ql-editor" # 不能加上 .ql-blank 属性，这样只能获取第一次非空状态
+            for index, tag in enumerate(self.tags, start=1):
+                await page.type(css_selector, "#" + tag)
+                await page.press(css_selector, "Space")
+            xiaohongshu_logger.info(f'总共添加{len(self.tags)}个话题')
 
-        #             if await page.locator('div.progress-div > div:has-text("上传失败")').count():
-        #                 xiaohongshu_logger.error("  [-] 发现上传出错了... 准备重试")
-        #                 await self.handle_upload_error(page)
-        #     except:
-        #         xiaohongshu_logger.info("  [-] 正在上传视频中...")
-        #         await asyncio.sleep(2)
-        
-        # 上传视频封面
-        # await self.set_thumbnail(page, self.thumbnail_path)
+            # while True:
+            #     # 判断重新上传按钮是否存在，如果不存在，代表视频正在上传，则等待
+            #     try:
+            #         #  新版：定位重新上传
+            #         number = await page.locator('[class^="long-card"] div:has-text("重新上传")').count()
+            #         if number > 0:
+            #             xiaohongshu_logger.success("  [-]视频上传完毕")
+            #             break
+            #         else:
+            #             xiaohongshu_logger.info("  [-] 正在上传视频中...")
+            #             await asyncio.sleep(2)
 
-        # 设置地理位置为固定值
-        await self.set_location(page, self.location)
+            #             if await page.locator('div.progress-div > div:has-text("上传失败")').count():
+            #                 xiaohongshu_logger.error("  [-] 发现上传出错了... 准备重试")
+            #                 await self.handle_upload_error(page)
+            #     except:
+            #         xiaohongshu_logger.info("  [-] 正在上传视频中...")
+            #         await asyncio.sleep(2)
+            
+            # 上传视频封面
+            # await self.set_thumbnail(page, self.thumbnail_path)
 
-        # # 頭條/西瓜
-        # third_part_element = '[class^="info"] > [class^="first-part"] div div.semi-switch'
-        # # 定位是否有第三方平台
-        # if await page.locator(third_part_element).count():
-        #     # 检测是否是已选中状态
-        #     if 'semi-switch-checked' not in await page.eval_on_selector(third_part_element, 'div => div.className'):
-        #         await page.locator(third_part_element).locator('input.semi-switch-native-control').click()
+            # 设置地理位置为固定值
+            await self.set_location(page, self.location)
 
-        if self.publish_date != 0:
-            await self.set_schedule_time_xiaohongshu(page, self.publish_date)
+            # # 頭條/西瓜
+            # third_part_element = '[class^="info"] > [class^="first-part"] div div.semi-switch'
+            # # 定位是否有第三方平台
+            # if await page.locator(third_part_element).count():
+            #     # 检测是否是已选中状态
+            #     if 'semi-switch-checked' not in await page.eval_on_selector(third_part_element, 'div => div.className'):
+            #         await page.locator(third_part_element).locator('input.semi-switch-native-control').click()
 
-        # 判断视频是否发布成功
-        while True:
+            if self.publish_date != 0:
+                await self.set_schedule_time_xiaohongshu(page, self.publish_date)
+
+            # 判断视频是否发布成功
+            while True:
+                try:
+                    # 等待包含"定时发布"文本的button元素出现并点击
+                    if self.publish_date != 0:
+                        await page.locator('button:has-text("定时发布")').click()
+                    else:
+                        await page.locator('button:has-text("发布")').click()
+                    await page.wait_for_url(
+                        "https://creator.xiaohongshu.com/publish/success?**",
+                        timeout=3000
+                    )  # 如果自动跳转到作品页面，则代表发布成功
+                    xiaohongshu_logger.success("  [-]视频发布成功")
+                    break
+                except:
+                    xiaohongshu_logger.info("  [-] 视频正在发布中...")
+                    await page.screenshot(full_page=True)
+                    await asyncio.sleep(0.5)
+
+            await context.storage_state(path=self.account_file)  # 保存cookie
+            xiaohongshu_logger.success('  [-]cookie更新完毕！')
+            await asyncio.sleep(2)  # 这里延迟是为了方便眼睛直观的观看
+            # 关闭浏览器上下文和浏览器实例
+        except Exception as e:
+            xiaohongshu_logger.error(f"❌ 上传过程中发生错误: {str(e)}")
+            xiaohongshu_logger.error(f"  错误类型: {type(e).__name__}")
+            
+            # 尝试截图保存现场
+            if page:
+                try:
+                    await page.screenshot(path="xiaohongshu_error_screenshot.png", full_page=True)
+                    xiaohongshu_logger.info("📸 错误截图已保存: xiaohongshu_error_screenshot.png")
+                except:
+                    pass
+            
+            # 重新抛出异常
+            raise e
+        finally:
+            # 确保资源正确清理
             try:
-                # 等待包含"定时发布"文本的button元素出现并点击
-                if self.publish_date != 0:
-                    await page.locator('button:has-text("定时发布")').click()
-                else:
-                    await page.locator('button:has-text("发布")').click()
-                await page.wait_for_url(
-                    "https://creator.xiaohongshu.com/publish/success?**",
-                    timeout=3000
-                )  # 如果自动跳转到作品页面，则代表发布成功
-                xiaohongshu_logger.success("  [-]视频发布成功")
-                break
+                if context:
+                    await context.close()
+                    xiaohongshu_logger.info("🔒 浏览器上下文已关闭")
             except:
-                xiaohongshu_logger.info("  [-] 视频正在发布中...")
-                await page.screenshot(full_page=True)
-                await asyncio.sleep(0.5)
-
-        await context.storage_state(path=self.account_file)  # 保存cookie
-        xiaohongshu_logger.success('  [-]cookie更新完毕！')
-        await asyncio.sleep(2)  # 这里延迟是为了方便眼睛直观的观看
-        # 关闭浏览器上下文和浏览器实例
-        await context.close()
-        await browser.close()
+                pass
+            
+            try:
+                if browser:
+                    await browser.close()
+                    xiaohongshu_logger.info("🔒 浏览器已关闭")
+            except:
+                pass
     
     async def set_thumbnail(self, page: Page, thumbnail_path: str):
         if thumbnail_path:
