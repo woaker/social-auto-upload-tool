@@ -10,16 +10,18 @@ import json
 import sys
 from pathlib import Path
 from playwright.async_api import async_playwright
+from douyin_config import get_browser_config, get_context_config, get_anti_detection_script, print_environment_info
 
 # 配置信息
 DOUYIN_COOKIE_FILE = "douyin_account.json"
 DOUYIN_URL = "https://creator.douyin.com/"
 
-# 代理配置示例（如果需要）
+# 代理配置（来自notepad）
 PROXY_CONFIG = {
-    # "server": "http://proxy-server:port",
-    # "username": "username",  # 可选
-    # "password": "password"   # 可选
+    "server": "http://54.226.20.77:5678",
+    # 注意：这个代理使用API密钥认证，可能需要特殊配置
+    # "username": "username",  # 如果需要基础认证
+    # "password": "password"   # 如果需要基础认证
 }
 
 async def test_douyin_connection(use_proxy=False):
@@ -43,24 +45,12 @@ async def test_douyin_connection(use_proxy=False):
         print(f"❌ Cookie加载失败: {e}")
         return False
     
+    # 打印环境信息
+    print_environment_info()
+    
     async with async_playwright() as playwright:
-        # 浏览器启动配置
-        launch_options = {
-            "headless": False,  # 设为True可无头运行
-            "args": [
-                "--disable-blink-features=AutomationControlled",
-                "--exclude-switches=enable-automation", 
-                "--disable-extensions-except=",
-                "--disable-extensions",
-                "--no-sandbox",
-                "--disable-web-security",
-                "--disable-features=VizDisplayCompositor",
-                "--disable-dev-shm-usage",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-renderer-backgrounding"
-            ]
-        }
+        # 获取浏览器配置
+        launch_options, env = get_browser_config()
         
         # 如果启用代理
         if use_proxy and PROXY_CONFIG.get("server"):
@@ -70,50 +60,15 @@ async def test_douyin_connection(use_proxy=False):
         try:
             browser = await playwright.chromium.launch(**launch_options)
             
+            # 获取上下文配置
+            context_config = get_context_config()
+            context_config["storage_state"] = DOUYIN_COOKIE_FILE
+            
             # 创建上下文
-            context = await browser.new_context(
-                storage_state=DOUYIN_COOKIE_FILE,
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.6533.120 Safari/537.36',
-                viewport={"width": 1920, "height": 1080},
-                extra_http_headers={
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-                    'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1',
-                }
-            )
+            context = await browser.new_context(**context_config)
             
             # 添加反检测脚本
-            await context.add_init_script("""
-                // 隐藏webdriver标识
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                
-                // 伪造插件信息
-                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-                
-                // 伪造语言信息
-                Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN', 'zh', 'en']});
-                
-                // 添加chrome对象
-                window.chrome = {runtime: {}};
-                
-                // 伪造权限API
-                Object.defineProperty(navigator, 'permissions', {
-                    get: () => ({query: () => Promise.resolve({state: 'granted'})})
-                });
-                
-                // 伪造硬件并发
-                Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 4});
-                
-                // 伪造平台信息
-                Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
-                
-                // 删除自动化相关属性
-                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
-                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
-                delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
-            """)
+            await context.add_init_script(get_anti_detection_script())
             
             page = await context.new_page()
             

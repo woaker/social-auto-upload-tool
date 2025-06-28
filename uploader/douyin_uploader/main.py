@@ -99,7 +99,7 @@ class DouYinVideo(object):
     async def upload(self, playwright: Playwright) -> None:
         # 使用 Chromium 浏览器启动一个浏览器实例，支持代理
         launch_options = {
-            "headless": False,
+            "headless": True,  # 云服务器环境必须使用无头模式
             "args": [
                 "--disable-blink-features=AutomationControlled",
                 "--exclude-switches=enable-automation",
