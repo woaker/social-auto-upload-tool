@@ -136,37 +136,80 @@ class XiaoHongShuVideo(object):
         # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
         xiaohongshu_logger.info(f'[-] 正在打开主页...')
         await page.wait_for_url("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video")
-        # 点击 "上传视频" 按钮
-        await page.locator("div[class^='upload-content'] input[class='upload-input']").set_input_files(self.file_path)
+        
+        # 等待上传区域加载完成
+        await asyncio.sleep(2)
+        
+        # 查找并上传视频文件
+        xiaohongshu_logger.info(f'[-] 正在选择视频文件...')
+        try:
+            # 多种可能的选择器
+            upload_selectors = [
+                "div[class^='upload-content'] input[class='upload-input']",
+                "input.upload-input",
+                "input[type='file'][class*='upload']",
+                "input[accept*='video']"
+            ]
+            
+            upload_success = False
+            for selector in upload_selectors:
+                try:
+                    upload_element = await page.wait_for_selector(selector, timeout=5000)
+                    if upload_element:
+                        await upload_element.set_input_files(self.file_path)
+                        xiaohongshu_logger.info(f'[-] 视频文件上传成功，使用选择器: {selector}')
+                        upload_success = True
+                        break
+                except Exception as e:
+                    xiaohongshu_logger.warning(f'[-] 选择器 {selector} 失败: {e}')
+                    continue
+            
+            if not upload_success:
+                raise Exception("无法找到视频上传元素")
+                
+        except Exception as e:
+            xiaohongshu_logger.error(f'[-] 视频上传失败: {e}')
+            raise
 
-        # 等待页面跳转到指定的 URL 2025.01.08修改在原有基础上兼容两种页面
-        while True:
+        # 等待视频上传处理完成
+        xiaohongshu_logger.info(f'[-] 等待视频处理完成...')
+        upload_completed = False
+        max_wait_time = 300  # 最大等待5分钟
+        wait_time = 0
+        
+        while not upload_completed and wait_time < max_wait_time:
             try:
-                # 等待upload-input元素出现
-                upload_input = await page.wait_for_selector('input.upload-input', timeout=3000)
-                # 获取下一个兄弟元素
-                preview_new = await upload_input.query_selector(
-                    'xpath=following-sibling::div[contains(@class, "preview-new")]')
-                if preview_new:
-                    # 在preview-new元素中查找包含"上传成功"的stage元素
-                    stage_elements = await preview_new.query_selector_all('div.stage')
-                    upload_success = False
-                    for stage in stage_elements:
-                        text_content = await page.evaluate('(element) => element.textContent', stage)
-                        if '上传成功' in text_content:
-                            upload_success = True
-                            break
-                    if upload_success:
-                        xiaohongshu_logger.info("[+] 检测到上传成功标识!")
-                        break  # 成功检测到上传成功后跳出循环
-                    else:
-                        print("  [-] 未找到上传成功标识，继续等待...")
-                else:
-                    print("  [-] 未找到预览元素，继续等待...")
-                    await asyncio.sleep(1)
+                await asyncio.sleep(3)
+                wait_time += 3
+                
+                # 检查多种上传完成的指示器
+                success_indicators = [
+                    'div.stage:has-text("上传成功")',
+                    'div:has-text("上传完成")', 
+                    'div:has-text("处理完成")',
+                    'button:has-text("发布")',  # 如果出现发布按钮，说明上传完成
+                    'div[class*="preview"]:visible',  # 预览区域出现
+                ]
+                
+                for indicator in success_indicators:
+                    if await page.locator(indicator).count() > 0:
+                        xiaohongshu_logger.success(f'[-] 检测到上传完成指示器: {indicator}')
+                        upload_completed = True
+                        break
+                
+                if not upload_completed:
+                    xiaohongshu_logger.info(f'[-] 视频处理中... ({wait_time}s/{max_wait_time}s)')
+                    
             except Exception as e:
-                print(f"  [-] 检测过程出错: {str(e)}，重新尝试...")
-                await asyncio.sleep(0.5)  # 等待0.5秒后重新尝试
+                xiaohongshu_logger.warning(f'[-] 检测上传状态时出错: {e}')
+                continue
+        
+        if not upload_completed:
+            xiaohongshu_logger.error(f'[-] 视频上传超时 ({max_wait_time}s)')
+            raise Exception("视频上传处理超时")
+        
+        xiaohongshu_logger.success('[-] 视频上传处理完成!')
+        await asyncio.sleep(2)  # 额外等待确保页面稳定
 
         # 填充标题和话题
         # 检查是否存在包含输入框的元素
