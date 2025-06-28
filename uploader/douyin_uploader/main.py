@@ -8,6 +8,7 @@ import asyncio
 from config import LOCAL_CHROME_PATH
 from utils.base_social_media import set_init_script
 from utils.log import douyin_logger
+from douyin_config import get_browser_config, get_context_config, get_anti_detection_script
 
 
 async def cookie_auth(account_file):
@@ -97,19 +98,8 @@ class DouYinVideo(object):
         await page.locator('div.progress-div [class^="upload-btn-input"]').set_input_files(self.file_path)
 
     async def upload(self, playwright: Playwright) -> None:
-        # 使用 Chromium 浏览器启动一个浏览器实例，支持代理
-        launch_options = {
-            "headless": True,  # 云服务器环境必须使用无头模式
-            "args": [
-                "--disable-blink-features=AutomationControlled",
-                "--exclude-switches=enable-automation",
-                "--disable-extensions-except=",
-                "--disable-extensions",
-                "--no-sandbox",
-                "--disable-web-security",
-                "--disable-features=VizDisplayCompositor"
-            ]
-        }
+        # 使用增强版云服务器优化配置
+        launch_options, env = get_browser_config()
         
         if self.local_executable_path:
             launch_options["executable_path"] = self.local_executable_path
@@ -119,28 +109,14 @@ class DouYinVideo(object):
             
         browser = await playwright.chromium.launch(**launch_options)
         
-        # 创建一个浏览器上下文，使用指定的 cookie 文件和反检测设置
-        context = await browser.new_context(
-            storage_state=f"{self.account_file}",
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.6533.120 Safari/537.36',
-            viewport={"width": 1920, "height": 1080},
-            extra_http_headers={
-                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-            }
-        )
+        # 使用增强版上下文配置
+        context_config = get_context_config()
+        context_config["storage_state"] = f"{self.account_file}"
         
-        # 添加额外的反检测脚本
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-            Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN', 'zh', 'en']});
-            window.chrome = {runtime: {}};
-            Object.defineProperty(navigator, 'permissions', {get: () => ({query: () => Promise.resolve({state: 'granted'})})});
-        """)
+        context = await browser.new_context(**context_config)
+        
+        # 使用增强版反检测脚本
+        await context.add_init_script(get_anti_detection_script())
         
         context = await set_init_script(context)
 
