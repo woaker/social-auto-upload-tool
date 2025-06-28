@@ -4,10 +4,15 @@ from datetime import datetime
 from playwright.async_api import Playwright, async_playwright, Page
 import os
 import asyncio
+import json
+import markdown
+import re
+from pathlib import Path
 
 from config import LOCAL_CHROME_PATH
 from utils.base_social_media import set_init_script
 from utils.log import douyin_logger
+from douyin_config import get_browser_config, get_context_config, get_anti_detection_script
 
 
 async def cookie_auth(account_file):
@@ -909,13 +914,23 @@ class TouTiaoArticle(object):
 
     async def upload(self, playwright: Playwright) -> None:
         """上传文章到今日头条 - V5版本（解决遮挡问题）"""
-        # 启动浏览器
-        if self.local_executable_path:
-            browser = await playwright.chromium.launch(headless=False, executable_path=self.local_executable_path)
-        else:
-            browser = await playwright.chromium.launch(headless=False)
+        # 使用增强版云服务器优化配置
+        launch_options, env = get_browser_config()
         
-        context = await browser.new_context(storage_state=f"{self.account_file}")
+        if self.local_executable_path:
+            launch_options["executable_path"] = self.local_executable_path
+            
+        browser = await playwright.chromium.launch(**launch_options)
+        
+        # 使用增强版上下文配置
+        context_config = get_context_config()
+        context_config["storage_state"] = f"{self.account_file}"
+        
+        context = await browser.new_context(**context_config)
+        
+        # 使用增强版反检测脚本
+        await context.add_init_script(get_anti_detection_script())
+        
         context = await set_init_script(context)
         page = await context.new_page()
         

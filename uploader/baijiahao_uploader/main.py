@@ -11,6 +11,7 @@ from config import LOCAL_CHROME_PATH
 from utils.base_social_media import set_init_script
 from utils.log import baijiahao_logger
 from utils.network import async_retry
+from douyin_config import get_browser_config, get_context_config, get_anti_detection_script
 
 
 async def baijiahao_cookie_gen(account_file):
@@ -118,10 +119,27 @@ class BaiJiaHaoVideo(object):
         print("视频出错了，重新上传中")
 
     async def upload(self, playwright: Playwright) -> None:
-        # 使用 Chromium 浏览器启动一个浏览器实例
-        browser = await playwright.chromium.launch(headless=False, executable_path=self.local_executable_path, proxy=self.proxy_setting)
-        # 创建一个浏览器上下文，使用指定的 cookie 文件
-        context = await browser.new_context(storage_state=f"{self.account_file}", user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.4324.150 Safari/537.36')
+        # 使用增强版云服务器优化配置
+        launch_options, env = get_browser_config()
+        
+        if self.local_executable_path:
+            launch_options["executable_path"] = self.local_executable_path
+            
+        if self.proxy_setting:
+            launch_options["proxy"] = self.proxy_setting
+            
+        browser = await playwright.chromium.launch(**launch_options)
+        
+        # 使用增强版上下文配置  
+        context_config = get_context_config()
+        context_config["storage_state"] = f"{self.account_file}"
+        context_config["user_agent"] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.4324.150 Safari/537.36'
+        
+        context = await browser.new_context(**context_config)
+        
+        # 使用增强版反检测脚本
+        await context.add_init_script(get_anti_detection_script())
+        
         # context = await set_init_script(context)
         await context.grant_permissions(['geolocation'])
 

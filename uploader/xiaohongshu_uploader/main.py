@@ -130,15 +130,53 @@ class XiaoHongShuVideo(object):
 
         # 创建一个新的页面
         page = await context.new_page()
+        
+        # 增强反检测：模拟人类行为
+        await page.add_init_script("""
+            // 更强的反检测脚本
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN', 'zh', 'en']});
+            window.chrome = {runtime: {}};
+            Object.defineProperty(navigator, 'permissions', {get: () => ({query: () => Promise.resolve({state: 'granted'})})});
+            
+            // 随机化时间函数
+            const originalDateNow = Date.now;
+            Date.now = () => originalDateNow() + Math.floor(Math.random() * 1000);
+            
+            // 模拟真实的用户代理
+            Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 4});
+            Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+            Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});
+        """)
+        
         # 访问指定的 URL
         await page.goto("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video")
         xiaohongshu_logger.info(f'[+]正在上传-------{self.title}.mp4')
+        
+        # 模拟人类行为：随机鼠标移动
+        await page.mouse.move(100, 100)
+        await asyncio.sleep(1)
+        await page.mouse.move(200, 150)
+        await asyncio.sleep(0.5)
+        
         # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
         xiaohongshu_logger.info(f'[-] 正在打开主页...')
         await page.wait_for_url("https://creator.xiaohongshu.com/publish/publish?from=homepage&target=video")
         
+        # 检查是否被重定向到登录页面
+        current_url = page.url
+        if 'login' in current_url.lower() or await page.locator('text="登录"').count() > 0:
+            xiaohongshu_logger.error("❌ 检测到登录页面，Cookie可能已失效!")
+            await page.screenshot(path="xiaohongshu_login_redirect.png", full_page=True)
+            raise Exception("被重定向到登录页面，需要重新获取Cookie")
+        
         # 等待上传区域加载完成
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)  # 增加等待时间
+        
+        # 模拟更多人类行为
+        await page.mouse.move(300, 200)
+        await asyncio.sleep(1)
         
         # 查找并上传视频文件
         xiaohongshu_logger.info(f'[-] 正在选择视频文件...')
@@ -182,6 +220,27 @@ class XiaoHongShuVideo(object):
             try:
                 await asyncio.sleep(2)  # 缩短等待间隔
                 wait_time += 2
+                
+                # 首先检查是否被重定向到登录页面
+                login_indicators = [
+                    'text="登录"',
+                    'text="手机号登录"', 
+                    'text="扫码登录"',
+                    'button:has-text("登录")',
+                    'a:has-text("登录")'
+                ]
+                
+                is_logged_out = False
+                for login_indicator in login_indicators:
+                    if await page.locator(login_indicator).count() > 0:
+                        xiaohongshu_logger.error(f"❌ 检测到登录页面元素: {login_indicator}")
+                        is_logged_out = True
+                        break
+                
+                if is_logged_out:
+                    await page.screenshot(path=f"xiaohongshu_logout_detected_{wait_time}s.png", full_page=True)
+                    xiaohongshu_logger.error("❌ 在上传过程中被强制登出，可能被反自动化系统检测到")
+                    raise Exception("被重定向到登录页面，请重新获取Cookie并重试")
                 
                 # 每15秒截图一次用于调试
                 if wait_time % 15 == 0:

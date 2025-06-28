@@ -13,7 +13,8 @@ import json
 import time
 import textwrap
 from datetime import datetime
-from playwright.async_api import Playwright, async_playwright
+from playwright.async_api import Playwright, async_playwright, Page
+from pathlib import Path
 
 # 添加项目根目录到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -23,6 +24,8 @@ sys.path.append(project_root)
 from utils.base_social_media import set_init_script
 from utils.files_times import get_absolute_path
 from utils.log import douyin_logger
+from config import LOCAL_CHROME_PATH
+from douyin_config import get_browser_config, get_context_config, get_anti_detection_script
 
 async def cookie_auth(account_file):
     """验证cookie是否有效"""
@@ -822,12 +825,23 @@ class TouTiaoArticle(object):
 
     async def upload(self, playwright: Playwright) -> None:
         """上传文章到今日头条"""
-        if self.local_executable_path:
-            browser = await playwright.chromium.launch(headless=False, executable_path=self.local_executable_path)
-        else:
-            browser = await playwright.chromium.launch(headless=False)
+        # 使用增强版云服务器优化配置
+        launch_options, env = get_browser_config()
         
-        context = await browser.new_context(storage_state=f"{self.account_file}")
+        if self.local_executable_path:
+            launch_options["executable_path"] = self.local_executable_path
+            
+        browser = await playwright.chromium.launch(**launch_options)
+        
+        # 使用增强版上下文配置
+        context_config = get_context_config()
+        context_config["storage_state"] = f"{self.account_file}"
+        
+        context = await browser.new_context(**context_config)
+        
+        # 使用增强版反检测脚本
+        await context.add_init_script(get_anti_detection_script())
+        
         context = await set_init_script(context)
         page = await context.new_page()
         

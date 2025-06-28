@@ -9,6 +9,7 @@ from uploader.tk_uploader.tk_config import Tk_Locator
 from utils.base_social_media import set_init_script
 from utils.files_times import get_absolute_path
 from utils.log import tiktok_logger
+from douyin_config import get_browser_config, get_context_config, get_anti_detection_script
 
 
 async def cookie_auth(account_file):
@@ -140,8 +141,21 @@ class TiktokVideo(object):
         await file_chooser.set_files(self.file_path)
 
     async def upload(self, playwright: Playwright) -> None:
-        browser = await playwright.firefox.launch(headless=False)
-        context = await browser.new_context(storage_state=f"{self.account_file}")
+        # 使用增强版云服务器优化配置
+        launch_options, env = get_browser_config()
+        
+        # TikTok使用Firefox浏览器
+        browser = await playwright.firefox.launch(**launch_options)
+        
+        # 使用增强版上下文配置
+        context_config = get_context_config()
+        context_config["storage_state"] = f"{self.account_file}"
+        
+        context = await browser.new_context(**context_config)
+        
+        # 使用增强版反检测脚本 
+        await context.add_init_script(get_anti_detection_script())
+        
         context = await set_init_script(context)
         page = await context.new_page()
 

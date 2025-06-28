@@ -9,11 +9,12 @@ from config import LOCAL_CHROME_PATH
 from utils.base_social_media import set_init_script
 from utils.files_times import get_absolute_path
 from utils.log import tencent_logger
+from douyin_config import get_browser_config, get_context_config, get_anti_detection_script
 
 
 def format_str_for_short_title(origin_title: str) -> str:
     # 定义允许的特殊字符
-    allowed_special_chars = "《》“”:+?%°"
+    allowed_special_chars = "《》""+?%°"
 
     # 移除不允许的特殊字符
     filtered_chars = [char if char.isalnum() or char in allowed_special_chars else ' ' if char == ',' else '' for
@@ -134,10 +135,23 @@ class TencentVideo(object):
         await file_input.set_input_files(self.file_path)
 
     async def upload(self, playwright: Playwright) -> None:
-        # 使用 Chromium (这里使用系统内浏览器，用chromium 会造成h264错误
-        browser = await playwright.chromium.launch(headless=False, executable_path=self.local_executable_path)
-        # 创建一个浏览器上下文，使用指定的 cookie 文件
-        context = await browser.new_context(storage_state=f"{self.account_file}")
+        # 使用增强版云服务器优化配置
+        launch_options, env = get_browser_config()
+        
+        if self.local_executable_path:
+            launch_options["executable_path"] = self.local_executable_path
+            
+        browser = await playwright.chromium.launch(**launch_options)
+        
+        # 使用增强版上下文配置
+        context_config = get_context_config()
+        context_config["storage_state"] = f"{self.account_file}"
+        
+        context = await browser.new_context(**context_config)
+        
+        # 使用增强版反检测脚本
+        await context.add_init_script(get_anti_detection_script())
+        
         context = await set_init_script(context)
 
         # 创建一个新的页面
