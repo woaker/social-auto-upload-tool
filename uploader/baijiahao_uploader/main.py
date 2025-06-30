@@ -123,9 +123,7 @@ class BaiJiaHaoVideo(object):
         # 检查视频格式兼容性并转换
         converter = VideoConverter()
         original_file_path = self.file_path
-        
-        # 百家号支持的视频格式
-        supported_formats = ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv']
+        supported_formats = ['.mp4', '.mov']
         
         if not converter.is_format_supported(self.file_path, supported_formats):
             baijiahao_logger.info(f"检测到不支持的视频格式: {os.path.splitext(self.file_path)[1]}，开始转换为mp4...")
@@ -135,25 +133,25 @@ class BaiJiaHaoVideo(object):
         try:
             # 使用增强版云服务器优化配置
             launch_options, env = get_browser_config()
-        
-        if self.local_executable_path:
-            launch_options["executable_path"] = self.local_executable_path
             
-        if self.proxy_setting:
-            launch_options["proxy"] = self.proxy_setting
+            if self.local_executable_path:
+                launch_options["executable_path"] = self.local_executable_path
                 
-        browser = await playwright.chromium.launch(**launch_options)
-        
-        # 使用增强版上下文配置  
+            if self.proxy_setting:
+                launch_options["proxy"] = self.proxy_setting
+                    
+            browser = await playwright.chromium.launch(**launch_options)
+            
+            # 使用增强版上下文配置  
             context_config = get_context_config()
-        context_config["storage_state"] = f"{self.account_file}"
-        context_config["user_agent"] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.4324.150 Safari/537.36'
-        
-        context = await browser.new_context(**context_config)
-        
-        # 使用增强版反检测脚本
-        await context.add_init_script(get_anti_detection_script())
-        
+            context_config["storage_state"] = f"{self.account_file}"
+            context_config["user_agent"] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.4324.150 Safari/537.36'
+            
+            context = await browser.new_context(**context_config)
+            
+            # 使用增强版反检测脚本
+            await context.add_init_script(get_anti_detection_script())
+            
             # context = await set_init_script(context)
             await context.grant_permissions(['geolocation'])
 
