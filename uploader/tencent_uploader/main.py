@@ -144,7 +144,7 @@ class TencentVideo(object):
         page = await context.new_page()
         # 访问指定的 URL
         await page.goto("https://channels.weixin.qq.com/platform/post/create")
-        tencent_logger.info(f'[+]正在上传-------{self.title}.mp4')
+        tencent_logger.info(f'[+]正在上传-------{os.path.basename(self.file_path)}')
         # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
         await page.wait_for_url("https://channels.weixin.qq.com/platform/post/create")
         # await page.wait_for_selector('input[type="file"]', timeout=10000)

@@ -146,7 +146,7 @@ class TiktokVideo(object):
         page = await context.new_page()
 
         await page.goto("https://www.tiktok.com/creator-center/upload")
-        tiktok_logger.info(f'[+]Uploading-------{self.title}.mp4')
+        tiktok_logger.info(f'[+]Uploading-------{os.path.basename(self.file_path)}')
 
         await page.wait_for_url("https://www.tiktok.com/tiktokstudio/upload", timeout=10000)
 
