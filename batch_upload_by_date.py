@@ -25,6 +25,7 @@ from utils.files_times import get_title_and_hashtags, generate_schedule_time_nex
 # 导入各平台的上传模块
 from uploader.douyin_uploader.main import douyin_setup, DouYinVideo
 from uploader.bilibili_uploader.main import read_cookie_json_file, extract_keys_from_json, random_emoji, BilibiliUploader
+from utils.video_converter import VideoConverter
 from uploader.ks_uploader.main import KSVideo, ks_setup
 from uploader.xiaohongshu_uploader.main import XiaoHongShuVideo, xiaohongshu_setup
 from uploader.tk_uploader.main import TiktokVideo, tiktok_setup
@@ -54,12 +55,12 @@ class BatchUploader:
                 'account_file': None,  # 动态设置
                 'upload_func': self.upload_to_douyin
             },
-            # 'bilibili': {
-            #     'name': 'B站',
-            #     'domains': ['bilibili.com'],
-            #     'account_file': None,
-            #     'upload_func': self.upload_to_bilibili
-            # },
+            'bilibili': {
+                'name': 'B站',
+                'domains': ['bilibili.com'],
+                'account_file': None,
+                'upload_func': self.upload_to_bilibili
+            },
             'kuaishou': {
                 'name': '快手',
                 'domains': ['kuaishou.com'],
@@ -78,18 +79,18 @@ class BatchUploader:
             #     'account_file': None,
             #     'upload_func': self.upload_to_tiktok
             # },
-            # 'baijiahao': {
-            #     'name': '百家号',
-            #     'domains': ['baijiahao.com'],
-            #     'account_file': None,
-            #     'upload_func': self.upload_to_baijiahao
-            # },
-            'tencent': {
-                'name': '视频号',
-                'domains': ['weixin.qq.com', 'channels.weixin.qq.com'],
+            'baijiahao': {
+                'name': '百家号',
+                'domains': ['baijiahao.baidu.com', 'baidu.com'],
                 'account_file': None,
-                'upload_func': self.upload_to_tencent
+                'upload_func': self.upload_to_baijiahao
             }
+            # 'tencent': {
+            #     'name': '视频号',
+            #     'domains': ['weixin.qq.com', 'channels.weixin.qq.com'],
+            #     'account_file': None,
+            #     'upload_func': self.upload_to_tencent
+            # }
         }
         
         # 动态查找每个平台的账号文件
@@ -251,7 +252,7 @@ class BatchUploader:
             except Exception as e:
                 print(f"❌ {file.name} 上传失败: {e}")
     
-    def upload_to_bilibili(self, video_files):
+    async def upload_to_bilibili(self, video_files):
         """上传到B站"""
         print(f"📺 开始上传到B站...")
         account_file = self.platforms['bilibili']['account_file']
@@ -263,23 +264,52 @@ class BatchUploader:
             print(f"❌ B站登录失败: {e}")
             return
         
-        tid = VideoZoneTypes.SPORTS_FOOTBALL.value  # 设置分区id
+        tid = VideoZoneTypes.MUSIC_OTHER.value  # 设置分区id为音乐综合
         file_num = len(video_files)
-        timestamps = generate_schedule_time_next_day(file_num, 1, daily_times=[16], timestamps=True)
+        
+        if self.enable_schedule:
+            timestamps = generate_schedule_time_next_day(file_num, self.videos_per_day, daily_times=self.daily_times, timestamps=True, start_days=self.start_days)
+        else:
+            timestamps = [0] * file_num  # 立即发布
         
         for index, file in enumerate(video_files):
             try:
                 title, tags = self.get_video_info(file)
+                # 清理标题中的特殊字符，避免B站审核问题
+                title = title.replace(" - ", " ").replace("(", "").replace(")", "")
                 title += random_emoji()  # B站不允许相同标题
                 tags_str = ','.join([tag for tag in tags])
                 
                 print(f"📤 正在上传: {file.name}")
                 print(f"   标题: {title}")
                 print(f"   标签: {tags}")
+                if self.enable_schedule:
+                    print(f"   发布时间: {timestamps[index] if timestamps[index] != 0 else '立即发布'}")
+                else:
+                    print(f"   发布方式: 立即发布")
+                
+                # B站视频格式检查和转换
+                converter = VideoConverter()
+                supported_formats = ['.mp4', '.avi', '.mov', '.flv']
+                
+                current_file = file
+                if file.suffix.lower() not in supported_formats:
+                    print(f"⚠️  B站不支持 {file.suffix} 格式，正在转换为mp4...")
+                    converted_file = converter.convert_to_mp4(str(file))
+                    if converted_file:
+                        current_file = Path(converted_file)
+                        print(f"✅ 视频转换成功: {current_file.name}")
+                    else:
+                        print(f"❌ 视频转换失败，跳过文件: {file.name}")
+                        continue
                 
                 desc = title
-                bili_uploader = BilibiliUploader(cookie_data, file, title, desc, tid, tags, timestamps[index])
-                bili_uploader.upload()
+                bili_uploader = BilibiliUploader(cookie_data, current_file, title, desc, tid, tags, timestamps[index])
+                await asyncio.get_event_loop().run_in_executor(None, bili_uploader.upload)
+                
+                # 如果转换了文件，上传完成后清理临时文件
+                if current_file != file:
+                    converter.cleanup_temp_file(str(current_file))
                 
                 print(f"✅ {file.name} 上传成功")
                 time.sleep(30)  # B站需要较长间隔
@@ -391,7 +421,7 @@ class BatchUploader:
         account_file = self.platforms['baijiahao']['account_file']
         
         file_num = len(video_files)
-        publish_datetimes = generate_schedule_time_next_day(file_num, 1, daily_times=[16])
+        publish_datetimes = self.get_publish_schedule(file_num)
         
         try:
             cookie_setup = await baijiahao_setup(account_file, handle=False)
@@ -405,6 +435,10 @@ class BatchUploader:
                 print(f"📤 正在上传: {file.name}")
                 print(f"   标题: {title}")
                 print(f"   标签: {tags}")
+                if self.enable_schedule:
+                    print(f"   发布时间: {publish_datetimes[index].strftime('%Y-%m-%d %H:%M')}")
+                else:
+                    print(f"   发布方式: 立即发布")
                 
                 app = BaiJiaHaoVideo(title, file, tags, publish_datetimes[index], account_file)
                 await app.main()
@@ -527,7 +561,7 @@ class BatchUploader:
 def main():
     parser = argparse.ArgumentParser(description='按日期目录批量上传视频')
     parser.add_argument('--platform', '-p', 
-                       choices=['douyin', 'bilibili', 'kuaishou', 'xiaohongshu', 'tiktok', 'baijiahao', 'tencent', 'all'],
+                       choices=['douyin', 'kuaishou', 'xiaohongshu', 'baijiahao', 'bilibili', 'tencent', 'tiktok', 'all'],
                        default='all',
                        help='目标平台 (默认: all)')
     parser.add_argument('--date', '-d',

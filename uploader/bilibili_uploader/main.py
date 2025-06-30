@@ -19,6 +19,9 @@ def extract_keys_from_json(data):
     # Extracting access_token
     if "access_token" in data['token_info']:
         extracted_data['access_token'] = data['token_info']['access_token']
+    else:
+        # 设置空的access_token，某些情况下B站可以仅用cookie工作
+        extracted_data['access_token'] = None
 
     return extracted_data
 
@@ -65,7 +68,9 @@ class BilibiliUploader(object):
     def upload(self):
         with BiliBili(self.data) as bili:
             bili.login_by_cookies(self.cookie_data)
-            bili.access_token = self.cookie_data.get('access_token')
+            access_token = self.cookie_data.get('access_token')
+            if access_token:
+                bili.access_token = access_token
             video_part = bili.upload_file(str(self.file), lines=self.lines,
                                           tasks=self.upload_thread_num)  # 上传视频，默认线路AUTO自动选择，线程数量3。
             video_part['title'] = self.title

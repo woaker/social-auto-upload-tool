@@ -93,7 +93,7 @@ class KSVideo(object):
         page = await context.new_page()
         # 访问指定的 URL
         await page.goto("https://cp.kuaishou.com/article/publish/video")
-        kuaishou_logger.info('正在上传-------{}.mp4'.format(self.title))
+        kuaishou_logger.info('正在上传-------{}'.format(os.path.basename(self.file_path)))
         # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
         kuaishou_logger.info('正在打开主页...')
         await page.wait_for_url("https://cp.kuaishou.com/article/publish/video")
