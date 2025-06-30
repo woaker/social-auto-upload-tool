@@ -11,6 +11,7 @@ from config import LOCAL_CHROME_PATH
 from utils.base_social_media import set_init_script
 from utils.log import baijiahao_logger
 from utils.network import async_retry
+from utils.video_converter import VideoConverter
 from douyin_config import get_browser_config, get_context_config, get_anti_detection_script
 
 
@@ -119,19 +120,32 @@ class BaiJiaHaoVideo(object):
         print("视频出错了，重新上传中")
 
     async def upload(self, playwright: Playwright) -> None:
-        # 使用增强版云服务器优化配置
-        launch_options, env = get_browser_config()
+        # 检查视频格式兼容性并转换
+        converter = VideoConverter()
+        original_file_path = self.file_path
+        
+        # 百家号支持的视频格式
+        supported_formats = ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv']
+        
+        if not converter.is_format_supported(self.file_path, supported_formats):
+            baijiahao_logger.info(f"检测到不支持的视频格式: {os.path.splitext(self.file_path)[1]}，开始转换为mp4...")
+            self.file_path = converter.convert_to_mp4(self.file_path)
+            baijiahao_logger.info(f"格式转换完成: {self.file_path}")
+        
+        try:
+            # 使用增强版云服务器优化配置
+            launch_options, env = get_browser_config()
         
         if self.local_executable_path:
             launch_options["executable_path"] = self.local_executable_path
             
         if self.proxy_setting:
             launch_options["proxy"] = self.proxy_setting
-            
+                
         browser = await playwright.chromium.launch(**launch_options)
         
         # 使用增强版上下文配置  
-        context_config = get_context_config()
+            context_config = get_context_config()
         context_config["storage_state"] = f"{self.account_file}"
         context_config["user_agent"] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.4324.150 Safari/537.36'
         
@@ -140,66 +154,75 @@ class BaiJiaHaoVideo(object):
         # 使用增强版反检测脚本
         await context.add_init_script(get_anti_detection_script())
         
-        # context = await set_init_script(context)
-        await context.grant_permissions(['geolocation'])
+            # context = await set_init_script(context)
+            await context.grant_permissions(['geolocation'])
 
-        # 创建一个新的页面
-        page = await context.new_page()
-        # 访问指定的 URL
-        await page.goto("https://baijiahao.baidu.com/builder/rc/edit?type=videoV2", timeout=60000)
-        baijiahao_logger.info(f"正在上传-------{self.title}.mp4")
-        # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
-        baijiahao_logger.info('正在打开主页...')
-        await page.wait_for_url("https://baijiahao.baidu.com/builder/rc/edit?type=videoV2", timeout=60000)
+            # 创建一个新的页面
+            page = await context.new_page()
+            # 访问指定的 URL
+            await page.goto("https://baijiahao.baidu.com/builder/rc/edit?type=videoV2", timeout=60000)
+            baijiahao_logger.info(f"正在上传-------{os.path.basename(self.file_path)}")
+            # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
+            baijiahao_logger.info('正在打开主页...')
+            await page.wait_for_url("https://baijiahao.baidu.com/builder/rc/edit?type=videoV2", timeout=60000)
 
-        # 点击 "上传视频" 按钮
-        await page.locator("div[class^='video-main-container'] input").set_input_files(self.file_path)
+            # 点击 "上传视频" 按钮
+            await page.locator("div[class^='video-main-container'] input").set_input_files(self.file_path)
 
-        # 等待页面跳转到指定的 URL
-        while True:
-            # 判断是是否进入视频发布页面，没进入，则自动等待到超时
-            try:
-                await page.wait_for_selector("div#formMain:visible")
-                break
-            except:
-                baijiahao_logger.info("正在等待进入视频发布页面...")
-                await asyncio.sleep(0.1)
+            # 等待页面跳转到指定的 URL
+            while True:
+                # 判断是是否进入视频发布页面，没进入，则自动等待到超时
+                try:
+                    await page.wait_for_selector("div#formMain:visible")
+                    break
+                except:
+                    baijiahao_logger.info("正在等待进入视频发布页面...")
+                    await asyncio.sleep(0.1)
 
-        # 填充标题和话题
-        # 这里为了避免页面变化，故使用相对位置定位：作品标题父级右侧第一个元素的input子元素
-        await asyncio.sleep(1)
-        baijiahao_logger.info("正在填充标题和话题...")
-        await self.add_title_tags(page)
+            # 填充标题和话题
+            # 这里为了避免页面变化，故使用相对位置定位：作品标题父级右侧第一个元素的input子元素
+            await asyncio.sleep(1)
+            baijiahao_logger.info("正在填充标题和话题...")
+            await self.add_title_tags(page)
 
-        upload_status = await self.uploading_video(page)
-        if not upload_status:
-            baijiahao_logger.error(f"发现上传出错了... 文件:{self.file_path}")
+            upload_status = await self.uploading_video(page)
+            if not upload_status:
+                baijiahao_logger.error(f"发现上传出错了... 文件:{self.file_path}")
+                raise Exception("视频上传失败")
+
+            # 判断视频封面图是否生成成功
+            while True:
+                baijiahao_logger.info("正在确认封面完成, 准备去点击定时/发布...")
+                if await page.locator("div.cheetah-spin-container img").count():
+                    baijiahao_logger.info("封面已完成，点击定时/发布...")
+                    break
+                else:
+                    baijiahao_logger.info("等待封面生成...")
+                    await asyncio.sleep(3)
+
+            await self.publish_video(page, self.publish_date)
+            await page.wait_for_timeout(2000)
+            if await page.locator('div.passMod_dialog-container >> text=百度安全验证:visible').count():
+                baijiahao_logger.error("出现验证，退出")
+                raise Exception("出现验证，退出")
+            await page.wait_for_url("https://baijiahao.baidu.com/builder/rc/clue**", timeout=5000)
+            baijiahao_logger.success("视频发布成功")
+
+            await context.storage_state(path=self.account_file)  # 保存cookie
+            baijiahao_logger.info('cookie更新完毕！')
+            await asyncio.sleep(2)  # 这里延迟是为了方便眼睛直观的观看
+            # 关闭浏览器上下文和浏览器实例
+            await context.close()
+            await browser.close()
+            
+        except Exception as e:
+            baijiahao_logger.error(f"上传过程中出现错误: {e}")
             raise
-
-        # 判断视频封面图是否生成成功
-        while True:
-            baijiahao_logger.info("正在确认封面完成, 准备去点击定时/发布...")
-            if await page.locator("div.cheetah-spin-container img").count():
-                baijiahao_logger.info("封面已完成，点击定时/发布...")
-                break
-            else:
-                baijiahao_logger.info("等待封面生成...")
-                await asyncio.sleep(3)
-
-        await self.publish_video(page, self.publish_date)
-        await page.wait_for_timeout(2000)
-        if await page.locator('div.passMod_dialog-container >> text=百度安全验证:visible').count():
-            baijiahao_logger.error("出现验证，退出")
-            raise Exception("出现验证，退出")
-        await page.wait_for_url("https://baijiahao.baidu.com/builder/rc/clue**", timeout=5000)
-        baijiahao_logger.success("视频发布成功")
-
-        await context.storage_state(path=self.account_file)  # 保存cookie
-        baijiahao_logger.info('cookie更新完毕！')
-        await asyncio.sleep(2)  # 这里延迟是为了方便眼睛直观的观看
-        # 关闭浏览器上下文和浏览器实例
-        await context.close()
-        await browser.close()
+        finally:
+            # 清理临时转换文件
+            if hasattr(self, 'file_path') and self.file_path != original_file_path:
+                converter.cleanup_temp_file(self.file_path)
+                baijiahao_logger.info(f"已清理临时文件: {self.file_path}")
 
 
     @async_retry(timeout=300)  # 例如，最多重试3次，超时时间为180秒
@@ -248,9 +271,40 @@ class BaiJiaHaoVideo(object):
 
     async def direct_publish(self, page):
         try:
-            publish_button = page.locator("button >> text=发布")
-            if await publish_button.count():
+            baijiahao_logger.info("开始直接发布...")
+            # 尝试多种选择器策略来精确选择立即发布按钮
+            
+            # 策略1: 排除包含"定时"的按钮
+            publish_button = page.locator("button:has-text('发布'):not(:has-text('定时'))")
+            
+            # 策略2: 如果策略1失败，尝试选择确切文本匹配
+            if await publish_button.count() == 0:
+                baijiahao_logger.info("策略1失败，尝试策略2...")
+                all_buttons = page.locator("button")
+                button_count = await all_buttons.count()
+                
+                for i in range(button_count):
+                    button = all_buttons.nth(i)
+                    button_text = await button.text_content()
+                    if button_text and button_text.strip() == "发布":
+                        publish_button = button
+                        baijiahao_logger.info(f"找到确切匹配的发布按钮: '{button_text.strip()}'")
+                        break
+            
+            # 策略3: 如果还是没找到，选择最后一个包含"发布"的按钮
+            if await publish_button.count() == 0:
+                baijiahao_logger.info("策略2失败，尝试策略3...")
+                all_publish_buttons = page.locator("button:has-text('发布')")
+                if await all_publish_buttons.count() > 0:
+                    publish_button = all_publish_buttons.last
+                    baijiahao_logger.info("选择最后一个发布按钮")
+            
+            if await publish_button.count() > 0:
                 await publish_button.click()
+                baijiahao_logger.info("已点击发布按钮")
+            else:
+                baijiahao_logger.error("未找到发布按钮")
+                raise Exception("未找到发布按钮")
         except Exception as e:
             baijiahao_logger.error(f"直接发布视频失败: {e}")
             raise  # 重新抛出异常，让重试装饰器捕获

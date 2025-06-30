@@ -108,43 +108,25 @@ class XiaoHongShuVideo(object):
         await page.locator('div.progress-div [class^="upload-btn-input"]').set_input_files(self.file_path)
 
     async def upload(self, playwright: Playwright) -> None:
-        # 使用增强版云服务器优化配置
-        launch_options, env = get_browser_config()
-        
-        # 添加额外的稳定性配置（与抖音相同）
-        launch_options["args"].extend([
-            "--disable-background-networking",
-            "--disable-client-side-phishing-detection", 
-            "--disable-sync",
-            "--disable-translate",
-            "--disable-ipc-flooding-protection",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--disable-default-apps"
-        ])
-        
-        if self.local_executable_path:
-            launch_options["executable_path"] = self.local_executable_path
-            
-        browser = None
-        context = None  
-        page = None
+        # 检查并转换视频格式（如果需要）
+        xiaohongshu_logger.info(f"🔍 检查视频格式兼容性...")
+        converted_file_path = convert_video_if_needed(self.file_path, platform="xiaohongshu")
+        if converted_file_path != self.file_path:
+            xiaohongshu_logger.info(f"✅ 使用转换后的视频文件: {os.path.basename(converted_file_path)}")
+            # 临时更新文件路径
+            self.file_path = converted_file_path
         
         try:
-            xiaohongshu_logger.info("🚀 启动浏览器...")
-            browser = await playwright.chromium.launch(**launch_options)
-            
-            # 使用增强版上下文配置
-            context_config = get_context_config()
-            context_config["storage_state"] = f"{self.account_file}"
-            context_config["viewport"] = {"width": 1600, "height": 900}  # 保持小红书特定的视口大小
-            
-            xiaohongshu_logger.info("🔧 创建浏览器上下文...")
-            context = await browser.new_context(**context_config)
-            
-            # 使用增强版反检测脚本
-            await context.add_init_script(get_anti_detection_script())
-            
+            # 使用 Chromium 浏览器启动一个浏览器实例
+            if self.local_executable_path:
+                browser = await playwright.chromium.launch(headless=False, executable_path=self.local_executable_path)
+            else:
+                browser = await playwright.chromium.launch(headless=False)
+            # 创建一个浏览器上下文，使用指定的 cookie 文件
+            context = await browser.new_context(
+                viewport={"width": 1600, "height": 900},
+                storage_state=f"{self.account_file}"
+            )
             context = await set_init_script(context)
 
             # 创建一个新的页面
@@ -478,10 +460,10 @@ class XiaoHongShuVideo(object):
                     await page.screenshot(full_page=True)
                     await asyncio.sleep(0.5)
 
-            await context.storage_state(path=self.account_file)  # 保存cookie
-            xiaohongshu_logger.success('  [-]cookie更新完毕！')
-            await asyncio.sleep(2)  # 这里延迟是为了方便眼睛直观的观看
-            # 关闭浏览器上下文和浏览器实例
+                await context.storage_state(path=self.account_file)  # 保存cookie
+                xiaohongshu_logger.success('  [-]cookie更新完毕！')
+                await asyncio.sleep(2)  # 这里延迟是为了方便眼睛直观的观看
+                # 关闭浏览器上下文和浏览器实例
         except Exception as e:
             xiaohongshu_logger.error(f"❌ 上传过程中发生错误: {str(e)}")
             xiaohongshu_logger.error(f"  错误类型: {type(e).__name__}")
@@ -500,17 +482,24 @@ class XiaoHongShuVideo(object):
             # 确保资源正确清理
             try:
                 if context:
-                    await context.close()
+                        await context.close()
                     xiaohongshu_logger.info("🔒 浏览器上下文已关闭")
             except:
                 pass
             
             try:
                 if browser:
-                    await browser.close()
+                        await browser.close()
                     xiaohongshu_logger.info("🔒 浏览器已关闭")
             except:
                 pass
+        
+        finally:
+            # 清理转换生成的临时文件
+            try:
+                cleanup_converted_files()
+            except Exception as e:
+                xiaohongshu_logger.warning(f"⚠️  清理临时文件时出错: {e}")
     
     async def set_thumbnail(self, page: Page, thumbnail_path: str):
         if thumbnail_path:
