@@ -482,19 +482,18 @@ class XiaoHongShuVideo(object):
             # 确保资源正确清理
             try:
                 if context:
-                        await context.close()
+                    await context.close()
                     xiaohongshu_logger.info("🔒 浏览器上下文已关闭")
             except:
                 pass
             
             try:
                 if browser:
-                        await browser.close()
+                    await browser.close()
                     xiaohongshu_logger.info("🔒 浏览器已关闭")
             except:
                 pass
-        
-        finally:
+            
             # 清理转换生成的临时文件
             try:
                 cleanup_converted_files()
