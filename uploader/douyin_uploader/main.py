@@ -170,8 +170,22 @@ class DouYinVideo(object):
             
             # 访问指定的 URL
             douyin_logger.info("🌐 访问抖音创作者中心...")
-            await page.goto("https://creator.douyin.com/creator-micro/content/upload", 
-                           wait_until="load", timeout=30000)
+            max_retries = 3
+            retry_count = 0
+            
+            while retry_count < max_retries:
+                try:
+                    await page.goto("https://creator.douyin.com/creator-micro/content/upload", 
+                                wait_until="load", timeout=60000)  # 增加到60秒
+                    break
+                except Exception as e:
+                    retry_count += 1
+                    if retry_count == max_retries:
+                        douyin_logger.error(f"访问抖音创作者中心失败: {str(e)}")
+                        raise
+                    douyin_logger.warning(f"第{retry_count}次重试访问抖音创作者中心...")
+                    await asyncio.sleep(5)  # 等待5秒后重试
+                    
             douyin_logger.info(f'[+]正在上传-------{os.path.basename(self.file_path)}')
             # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
             douyin_logger.info(f'[-] 正在打开主页...')
