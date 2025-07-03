@@ -162,17 +162,17 @@ cython_debug/
 .DS_Store
 
 # ignore cookie file
-tencent_uploader/*.json
-youtube_uploader/*.json
-douyin_uploader/*.json
-bilibili_uploader/*.json
-tk_uploader/*.json
+#tencent_uploader/*.json
+#youtube_uploader/*.json
+#douyin_uploader/*.json
+#bilibili_uploader/*.json
+#tk_uploader/*.json
 
 # 配置文件
 conf.py
 
 # 账号文件
-cookies
+#cookies
 
 # Frontend
 .vite/
@@ -185,7 +185,7 @@ db/database.db
 database.db
 
 # 临时文件夹
-cookiesFile
+#cookiesFile
 uploadFile
 videoFile
 
