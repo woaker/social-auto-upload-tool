@@ -103,6 +103,11 @@ class DouYinVideo(object):
         
         # 添加额外的稳定性配置
         launch_options["args"].extend([
+            "--no-sandbox",  # 云服务器必需
+            "--disable-dev-shm-usage",  # 云服务器必需
+            "--disable-gpu",  # 云服务器必需
+            "--disable-web-security",
+            "--disable-features=VizDisplayCompositor",
             "--disable-background-networking",
             "--disable-client-side-phishing-detection", 
             "--disable-sync",
@@ -130,6 +135,8 @@ class DouYinVideo(object):
             # 使用增强版上下文配置
             context_config = get_context_config()
             context_config["storage_state"] = f"{self.account_file}"
+            context_config["viewport"] = {'width': 1920, 'height': 1080}
+            context_config["user_agent"] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             
             douyin_logger.info("🔧 创建浏览器上下文...")
             context = await browser.new_context(**context_config)
@@ -176,7 +183,7 @@ class DouYinVideo(object):
             while retry_count < max_retries:
                 try:
                     await page.goto("https://creator.douyin.com/creator-micro/content/upload", 
-                                wait_until="load", timeout=60000)  # 增加到60秒
+                                wait_until="networkidle", timeout=60000)  # 等待网络空闲
                     break
                 except Exception as e:
                     retry_count += 1
@@ -188,17 +195,38 @@ class DouYinVideo(object):
             
             # 检查是否在登录页面
             if await page.get_by_text('手机号登录').count() > 0 or await page.get_by_text('扫码登录').count() > 0:
+                # 保存错误截图
+                await page.screenshot(path='douyin_error_screenshot.png')
                 raise Exception("Cookie已失效，需要重新登录")
                     
             douyin_logger.info(f'[+]正在上传-------{os.path.basename(self.file_path)}')
-            # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
-            douyin_logger.info(f'[-] 正在打开主页...')
-            await page.wait_for_url("https://creator.douyin.com/creator-micro/content/upload")
             
-            # 等待上传按钮出现
-            upload_button = await page.wait_for_selector("input[type='file']", timeout=10000)
+            # 等待页面加载完成
+            await asyncio.sleep(5)  # 额外等待5秒确保页面完全加载
+            
+            # 尝试多个可能的上传按钮选择器
+            upload_button = None
+            selectors = [
+                "input[type='file']",
+                "input[accept='video/*']",
+                ".upload-btn input",
+                ".semi-upload input",
+                "div[class^='upload'] input[type='file']"
+            ]
+            
+            for selector in selectors:
+                try:
+                    upload_button = await page.wait_for_selector(selector, timeout=20000, state="attached")
+                    if upload_button:
+                        douyin_logger.info(f"找到上传按钮: {selector}")
+                        break
+                except:
+                    continue
+            
             if not upload_button:
-                raise Exception("未找到上传按钮")
+                # 保存错误截图
+                await page.screenshot(path='douyin_error_screenshot.png')
+                raise Exception("未找到上传按钮，请检查页面结构")
             
             # 上传文件
             await upload_button.set_input_files(self.file_path)
