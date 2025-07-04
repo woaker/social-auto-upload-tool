@@ -8,6 +8,7 @@
 import json
 import time
 import qrcode
+import os
 from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -24,6 +25,10 @@ def get_douyin_cookie_cloud():
     
     cookie_file = cookies_dir / "douyin_account.json"
     
+    # 确保DISPLAY环境变量设置正确
+    if "DISPLAY" not in os.environ:
+        os.environ["DISPLAY"] = ":99"
+    
     # 配置Chrome选项
     options = uc.ChromeOptions()
     options.add_argument('--no-sandbox')
@@ -38,10 +43,24 @@ def get_douyin_cookie_cloud():
     options.add_argument('--disable-popup-blocking')
     options.add_argument('--ignore-certificate-errors')
     options.add_argument('--lang=zh-CN')
+    options.add_argument('--remote-debugging-port=9222')  # 添加调试端口
+    
+    # 设置二进制文件路径
+    options.binary_location = "/usr/bin/google-chrome-stable"
     
     try:
         print("🚀 启动浏览器...")
-        driver = uc.Chrome(options=options)
+        print("Chrome路径:", options.binary_location)
+        print("DISPLAY:", os.environ.get("DISPLAY"))
+        
+        # 使用自定义的ChromeDriver路径
+        driver = uc.Chrome(
+            options=options,
+            driver_executable_path="/usr/bin/chromedriver",
+            browser_executable_path="/usr/bin/google-chrome-stable",
+            version_main=120  # 指定Chrome主版本号
+        )
+        
         driver.set_window_size(1920, 1080)
         
         # 设置等待
@@ -190,6 +209,12 @@ def get_douyin_cookie_cloud():
 if __name__ == '__main__':
     print("🤖 抖音Cookie获取工具 (云服务器版)")
     print("=" * 50)
+    
+    # 检查环境
+    print("环境检查:")
+    print(f"DISPLAY: {os.environ.get('DISPLAY', 'Not set')}")
+    print(f"Chrome路径: {'/usr/bin/google-chrome-stable'}")
+    print(f"ChromeDriver路径: {'/usr/bin/chromedriver'}")
     
     result = get_douyin_cookie_cloud()
     
