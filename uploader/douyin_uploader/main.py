@@ -185,13 +185,23 @@ class DouYinVideo(object):
                         raise
                     douyin_logger.warning(f"第{retry_count}次重试访问抖音创作者中心...")
                     await asyncio.sleep(5)  # 等待5秒后重试
+            
+            # 检查是否在登录页面
+            if await page.get_by_text('手机号登录').count() > 0 or await page.get_by_text('扫码登录').count() > 0:
+                raise Exception("Cookie已失效，需要重新登录")
                     
             douyin_logger.info(f'[+]正在上传-------{os.path.basename(self.file_path)}')
             # 等待页面跳转到指定的 URL，没进入，则自动等待到超时
             douyin_logger.info(f'[-] 正在打开主页...')
             await page.wait_for_url("https://creator.douyin.com/creator-micro/content/upload")
-            # 点击 "上传视频" 按钮
-            await page.locator("div[class^='container'] input").set_input_files(self.file_path)
+            
+            # 等待上传按钮出现
+            upload_button = await page.wait_for_selector("input[type='file']", timeout=10000)
+            if not upload_button:
+                raise Exception("未找到上传按钮")
+            
+            # 上传文件
+            await upload_button.set_input_files(self.file_path)
 
             # 等待页面跳转到指定的 URL 2025.01.08修改在原有基础上兼容两种页面
             while True:
