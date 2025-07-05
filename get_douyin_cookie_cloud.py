@@ -191,32 +191,34 @@ def get_douyin_cookie_cloud():
         if qr_img:
             # 获取登录链接
             try:
-                # 查找登录链接元素
-                login_url = None
+                # 查找二维码元素
                 qr_element = driver.find_element(By.CSS_SELECTOR, 'img[class*="qrcode"]')
                 if qr_element:
-                    # 获取父元素中的链接
-                    parent_element = qr_element.find_element(By.XPATH, '..')
-                    login_url = parent_element.get_attribute('href')
-                    if not login_url:
-                        # 如果父元素没有链接，尝试获取兄弟元素的链接
-                        sibling_link = driver.find_element(By.CSS_SELECTOR, 'a[href*="scan/login"]')
-                        if sibling_link:
-                            login_url = sibling_link.get_attribute('href')
-                
-                if login_url:
-                    print("\n✨ 请按以下步骤完成登录：")
-                    print("1. 复制下面的链接")
-                    print("2. 在手机抖音APP中打开")
-                    print("3. 完成授权登录")
-                    print("\n📱 登录链接：")
-                    print(login_url)
-                    print("\n⏳ 等待登录成功...")
-                    print("   请在手机上完成授权")
+                    # 获取二维码的src属性
+                    qr_src = qr_element.get_attribute('src')
+                    if qr_src and qr_src.startswith('data:image/png;base64,'):
+                        # 等待一下确保页面加载完成
+                        time.sleep(2)
+                        # 获取当前URL
+                        current_url = driver.current_url
+                        # 构造登录链接
+                        login_url = current_url.replace('/creator.douyin.com/', '/creator-micro.douyin.com/') + '?source=qrcode'
+                        
+                        print("\n✨ 请按以下步骤完成登录：")
+                        print("1. 打开抖音APP")
+                        print("2. 点击"我"")
+                        print("3. 点击右上角"扫一扫"")
+                        print("4. 扫描电脑屏幕上的二维码")
+                        print("\n📱 或者使用以下链接登录：")
+                        print(login_url)
+                        print("\n⏳ 等待登录成功...")
+                        print("   请在手机上完成授权")
+                    else:
+                        print("❌ 无法获取有效的二维码，请检查网页是否正常加载")
                 else:
-                    print("❌ 无法获取登录链接，请检查网页是否正常加载")
+                    print("❌ 未找到二维码元素，请检查网页是否正常加载")
             except Exception as e:
-                print(f"❌ 获取登录链接时出错: {e}")
+                print(f"❌ 获取登录信息时出错: {e}")
         else:
             # 保存页面源码以供调试
             with open('page_source.html', 'w', encoding='utf-8') as f:
