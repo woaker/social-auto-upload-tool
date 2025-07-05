@@ -206,7 +206,7 @@ def get_douyin_cookie_cloud():
                         qr_data = qr_src.replace("data:image/png;base64,", "")
                         qr_bytes = base64.b64decode(qr_data)
                         
-                        # 创建新的二维码
+                        # 创建新的二维码，使用最小版本
                         qr = qrcode.QRCode(
                             version=1,
                             error_correction=qrcode.constants.ERROR_CORRECT_L,
@@ -222,15 +222,15 @@ def get_douyin_cookie_cloud():
                         print('3. 点击右上角"扫一扫"')
                         print("4. 扫描下面的二维码：\n")
                         
-                        # 使用最简单的字符显示二维码
+                        # 使用单个字符显示二维码
                         matrix = qr.get_matrix()
                         for row in matrix:
                             line = ""
                             for cell in row:
                                 if cell:
-                                    line += "##"  # 使用两个#号代表一个黑块
+                                    line += "#"  # 使用单个#号代表一个黑块
                                 else:
-                                    line += "  "  # 使用两个空格代表一个白块
+                                    line += " "  # 使用单个空格代表一个白块
                             print(line)
                         
                         print("\n⏳ 等待登录成功...")
