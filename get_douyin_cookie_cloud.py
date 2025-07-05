@@ -202,12 +202,13 @@ def get_douyin_cookie_cloud():
                     version=1,
                     error_correction=qrcode.constants.ERROR_CORRECT_L,
                     box_size=1,
-                    border=0
+                    border=1,
+                    quiet_zone=1
                 )
                 mini_qr.add_data(qr_src)
                 mini_qr.make(fit=True)
-                # 使用自定义字符来减小二维码大小
-                mini_qr.print_ascii(tty=True, invert=True, out=None, chars=' █')
+                # 使用更紧凑的字符来显示二维码
+                mini_qr.print_ascii(tty=True, invert=True, out=None, chars='  █')
             except Exception as e:
                 print(f"   无法显示二维码: {e}")
                 print("   请使用上面的链接")
