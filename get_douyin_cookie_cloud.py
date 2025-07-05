@@ -189,23 +189,34 @@ def get_douyin_cookie_cloud():
                 print(f"❌ 无法切换到扫码登录: {e}")
         
         if qr_img:
-            qr_src = qr_img.get_attribute('src')
-            print("📱 请使用抖音APP扫描以下二维码登录:")
-            print(f"   二维码链接: {qr_src}")
-            
-            # 显示登录链接
+            # 获取登录链接
             try:
-                print("\n✨ 请按以下步骤完成登录：")
-                print("1. 复制下面的链接")
-                print("2. 在手机抖音APP中打开")
-                print("3. 完成授权登录")
-                print("\n📱 登录链接：")
-                print(qr_src)
-                print("\n⏳ 等待登录成功...")
-                print("   请在手机上完成授权")
+                # 查找登录链接元素
+                login_url = None
+                qr_element = driver.find_element(By.CSS_SELECTOR, 'img[class*="qrcode"]')
+                if qr_element:
+                    # 获取父元素中的链接
+                    parent_element = qr_element.find_element(By.XPATH, '..')
+                    login_url = parent_element.get_attribute('href')
+                    if not login_url:
+                        # 如果父元素没有链接，尝试获取兄弟元素的链接
+                        sibling_link = driver.find_element(By.CSS_SELECTOR, 'a[href*="scan/login"]')
+                        if sibling_link:
+                            login_url = sibling_link.get_attribute('href')
+                
+                if login_url:
+                    print("\n✨ 请按以下步骤完成登录：")
+                    print("1. 复制下面的链接")
+                    print("2. 在手机抖音APP中打开")
+                    print("3. 完成授权登录")
+                    print("\n📱 登录链接：")
+                    print(login_url)
+                    print("\n⏳ 等待登录成功...")
+                    print("   请在手机上完成授权")
+                else:
+                    print("❌ 无法获取登录链接，请检查网页是否正常加载")
             except Exception as e:
-                print(f"   无法显示登录链接: {e}")
-                print("   请使用上面的链接")
+                print(f"❌ 获取登录链接时出错: {e}")
         else:
             # 保存页面源码以供调试
             with open('page_source.html', 'w', encoding='utf-8') as f:
