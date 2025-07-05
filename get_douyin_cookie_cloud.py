@@ -222,15 +222,15 @@ def get_douyin_cookie_cloud():
                         print('3. 点击右上角"扫一扫"')
                         print("4. 扫描下面的二维码：\n")
                         
-                        # 使用简单字符显示二维码
+                        # 使用最简单的字符显示二维码
                         matrix = qr.get_matrix()
                         for row in matrix:
                             line = ""
                             for cell in row:
                                 if cell:
-                                    line += "█"
+                                    line += "##"  # 使用两个#号代表一个黑块
                                 else:
-                                    line += " "
+                                    line += "  "  # 使用两个空格代表一个白块
                             print(line)
                         
                         print("\n⏳ 等待登录成功...")
