@@ -43,32 +43,55 @@ def get_douyin_cookie_cloud():
     options.add_argument('--disable-popup-blocking')
     options.add_argument('--ignore-certificate-errors')
     options.add_argument('--lang=zh-CN')
-    options.add_argument('--remote-debugging-port=9222')  # 添加调试端口
+    options.add_argument('--remote-debugging-port=0')  # 使用随机端口
+    options.add_argument('--disable-extensions')
+    options.add_argument('--disable-dev-tools')
+    options.add_argument('--no-first-run')
+    options.add_argument('--disable-client-side-phishing-detection')
     
     # 设置二进制文件路径
     options.binary_location = "/usr/bin/google-chrome-stable"
     
+    driver = None
     try:
         print("🚀 启动浏览器...")
         print("Chrome路径:", options.binary_location)
         print("DISPLAY:", os.environ.get("DISPLAY"))
+        
+        # 增加超时设置
+        uc.DEFAULT_CONNECTION_TIMEOUT = 180
         
         # 使用自定义的ChromeDriver路径
         driver = uc.Chrome(
             options=options,
             driver_executable_path="/usr/bin/chromedriver",
             browser_executable_path="/usr/bin/google-chrome-stable",
-            version_main=120  # 指定Chrome主版本号
+            version_main=138,  # 更新为当前Chrome版本
+            command_executor_timeout=180,
+            page_load_timeout=180,
+            keep_alive=True
         )
         
         driver.set_window_size(1920, 1080)
+        driver.set_page_load_timeout(180)
+        driver.set_script_timeout(180)
         
         # 设置等待
-        wait = WebDriverWait(driver, 30)
+        wait = WebDriverWait(driver, 60)  # 增加等待时间
         
         print("🌐 访问抖音创作者中心...")
-        driver.get('https://creator.douyin.com/')
-        time.sleep(3)
+        max_retries = 3
+        for retry in range(max_retries):
+            try:
+                driver.get('https://creator.douyin.com/')
+                break
+            except Exception as e:
+                if retry == max_retries - 1:
+                    raise
+                print(f"重试访问 ({retry + 1}/{max_retries})...")
+                time.sleep(5)
+        
+        time.sleep(5)  # 等待页面加载
         
         # 保存页面截图
         driver.save_screenshot('douyin_login_page.png')
@@ -81,13 +104,17 @@ def get_douyin_cookie_cloud():
             'img[src*="qrcode"]',
             'img[class*="qrcode"]',
             'img[alt*="qrcode"]',
-            '.login-qrcode img'
+            '.login-qrcode img',
+            '//img[contains(@src, "qrcode")]'  # 添加XPath选择器
         ]
         
         qr_img = None
         for selector in qr_selectors:
             try:
-                qr_img = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
+                if '//' in selector:  # XPath选择器
+                    qr_img = wait.until(EC.presence_of_element_located((By.XPATH, selector)))
+                else:  # CSS选择器
+                    qr_img = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
                 if qr_img:
                     print(f"✅ 找到二维码元素: {selector}")
                     break
@@ -97,21 +124,37 @@ def get_douyin_cookie_cloud():
         if not qr_img:
             print("❌ 未找到二维码元素，尝试其他登录方式...")
             try:
-                scan_button = driver.find_element(By.XPATH, "//*[contains(text(), '扫码登录')]")
-                scan_button.click()
-                time.sleep(2)
+                # 尝试多个可能的登录按钮
+                login_buttons = [
+                    "//*[contains(text(), '扫码登录')]",
+                    "//button[contains(., '扫码登录')]",
+                    "//div[contains(., '扫码登录')][@role='button']"
+                ]
+                
+                for button in login_buttons:
+                    try:
+                        scan_button = driver.find_element(By.XPATH, button)
+                        scan_button.click()
+                        print(f"✅ 点击了登录按钮: {button}")
+                        time.sleep(3)
+                        break
+                    except:
+                        continue
                 
                 # 重新尝试获取二维码
                 for selector in qr_selectors:
                     try:
-                        qr_img = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
+                        if '//' in selector:
+                            qr_img = wait.until(EC.presence_of_element_located((By.XPATH, selector)))
+                        else:
+                            qr_img = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
                         if qr_img:
                             print(f"✅ 点击扫码登录后找到二维码元素: {selector}")
                             break
                     except:
                         continue
-            except:
-                print("❌ 无法切换到扫码登录")
+            except Exception as e:
+                print(f"❌ 无法切换到扫码登录: {e}")
         
         if qr_img:
             qr_src = qr_img.get_attribute('src')
@@ -190,21 +233,23 @@ def get_douyin_cookie_cloud():
     except Exception as e:
         print(f"❌ 获取cookie失败: {e}")
         # 保存错误页面截图和源码
-        try:
-            driver.save_screenshot('douyin_error.png')
-            print("📸 已保存错误页面截图到 douyin_error.png")
-            with open('douyin_error.html', 'w', encoding='utf-8') as f:
-                f.write(driver.page_source)
-            print("📄 已保存错误页面源码到 douyin_error.html")
-        except:
-            pass
+        if driver:
+            try:
+                driver.save_screenshot('douyin_error.png')
+                print("📸 已保存错误页面截图到 douyin_error.png")
+                with open('douyin_error.html', 'w', encoding='utf-8') as f:
+                    f.write(driver.page_source)
+                print("📄 已保存错误页面源码到 douyin_error.html")
+            except:
+                pass
         return False
         
     finally:
-        try:
-            driver.quit()
-        except:
-            pass
+        if driver:
+            try:
+                driver.quit()
+            except:
+                pass
 
 if __name__ == '__main__':
     print("🤖 抖音Cookie获取工具 (云服务器版)")
