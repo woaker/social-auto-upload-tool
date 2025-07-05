@@ -192,22 +192,22 @@ def get_douyin_cookie_cloud():
             # 获取登录链接
             try:
                 # 查找二维码元素
-                qr_element = driver.find_element(By.CSS_SELECTOR, 'img[class*="qrcode"]')
+                qr_element = driver.find_element(By.CSS_SELECTOR, "img[class*='qrcode']")
                 if qr_element:
                     # 获取二维码的src属性
-                    qr_src = qr_element.get_attribute('src')
-                    if qr_src and qr_src.startswith('data:image/png;base64,'):
+                    qr_src = qr_element.get_attribute("src")
+                    if qr_src and qr_src.startswith("data:image/png;base64,"):
                         # 等待一下确保页面加载完成
                         time.sleep(2)
                         # 获取当前URL
                         current_url = driver.current_url
                         # 构造登录链接
-                        login_url = current_url.replace('/creator.douyin.com/', '/creator-micro.douyin.com/') + '?source=qrcode'
+                        login_url = current_url.replace("creator.douyin.com", "creator-micro.douyin.com") + "?source=qrcode"
                         
                         print("\n✨ 请按以下步骤完成登录：")
                         print("1. 打开抖音APP")
-                        print("2. 点击"我"")
-                        print("3. 点击右上角"扫一扫"")
+                        print('2. 点击"我"')
+                        print('3. 点击右上角"扫一扫"')
                         print("4. 扫描电脑屏幕上的二维码")
                         print("\n📱 或者使用以下链接登录：")
                         print(login_url)
