@@ -195,19 +195,22 @@ def get_douyin_cookie_cloud():
             
             # 生成二维码到终端
             try:
-                qr = qrcode.QRCode(
+                print("\n二维码链接：")
+                print(qr_src)
+                print("\n迷你二维码：")
+                mini_qr = qrcode.QRCode(
                     version=1,
                     error_correction=qrcode.constants.ERROR_CORRECT_L,
                     box_size=1,
-                    border=1,
-                    image_factory=None
+                    border=0
                 )
-                qr.add_data(qr_src)
-                qr.make(fit=True)
-                qr.print_ascii(tty=True, invert=True)
+                mini_qr.add_data(qr_src)
+                mini_qr.make(fit=True)
+                # 使用自定义字符来减小二维码大小
+                mini_qr.print_ascii(tty=True, invert=True, out=None, chars=' █')
             except Exception as e:
                 print(f"   无法显示二维码: {e}")
-                print("   请访问上面的链接")
+                print("   请使用上面的链接")
         else:
             # 保存页面源码以供调试
             with open('page_source.html', 'w', encoding='utf-8') as f:
