@@ -206,8 +206,17 @@ def get_douyin_cookie_cloud():
                 )
                 mini_qr.add_data(qr_src)
                 mini_qr.make(fit=True)
+                matrix = mini_qr.get_matrix()
+                
                 print("请使用抖音扫描下面的二维码：")
-                mini_qr.print_ascii(tty=False)
+                for row in matrix:
+                    line = ''
+                    for cell in row:
+                        if cell:
+                            line += '█'
+                        else:
+                            line += ' '
+                    print(line)
                 print("\n如果二维码无法扫描，请直接使用上面的链接")
             except Exception as e:
                 print(f"   无法显示二维码: {e}")
