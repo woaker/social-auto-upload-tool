@@ -193,33 +193,18 @@ def get_douyin_cookie_cloud():
             print("📱 请使用抖音APP扫描以下二维码登录:")
             print(f"   二维码链接: {qr_src}")
             
-            # 生成二维码到终端
+            # 显示登录链接
             try:
-                print("\n二维码链接：")
+                print("\n✨ 请按以下步骤完成登录：")
+                print("1. 复制下面的链接")
+                print("2. 在手机抖音APP中打开")
+                print("3. 完成授权登录")
+                print("\n📱 登录链接：")
                 print(qr_src)
-                print("\n迷你二维码：")
-                mini_qr = qrcode.QRCode(
-                    version=1,
-                    error_correction=qrcode.constants.ERROR_CORRECT_L,
-                    box_size=1,
-                    border=1
-                )
-                mini_qr.add_data(qr_src)
-                mini_qr.make(fit=True)
-                matrix = mini_qr.get_matrix()
-                
-                print("请使用抖音扫描下面的二维码：")
-                for row in matrix:
-                    line = ''
-                    for cell in row:
-                        if cell:
-                            line += '█'
-                        else:
-                            line += ' '
-                    print(line)
-                print("\n如果二维码无法扫描，请直接使用上面的链接")
+                print("\n⏳ 等待登录成功...")
+                print("   请在手机上完成授权")
             except Exception as e:
-                print(f"   无法显示二维码: {e}")
+                print(f"   无法显示登录链接: {e}")
                 print("   请使用上面的链接")
         else:
             # 保存页面源码以供调试
