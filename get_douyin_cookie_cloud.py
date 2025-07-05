@@ -200,14 +200,14 @@ def get_douyin_cookie_cloud():
                 print("\n迷你二维码：")
                 mini_qr = qrcode.QRCode(
                     version=1,
-                    error_correction=qrcode.constants.ERROR_CORRECT_L,
-                    box_size=1,
-                    border=1
+                    error_correction=qrcode.constants.ERROR_CORRECT_M,
+                    box_size=2,
+                    border=2
                 )
                 mini_qr.add_data(qr_src)
                 mini_qr.make(fit=True)
                 print("请使用抖音扫描下面的二维码：")
-                mini_qr.print_ascii(tty=True, invert=True)
+                mini_qr.print_ascii(tty=False)
             except Exception as e:
                 print(f"   无法显示二维码: {e}")
                 print("   请使用上面的链接")
