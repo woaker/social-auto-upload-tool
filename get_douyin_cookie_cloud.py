@@ -18,6 +18,30 @@ from selenium.webdriver.support import expected_conditions as EC
 import undetected_chromedriver as uc
 import base64
 from urllib.parse import urlparse, parse_qs
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+import threading
+import socket
+
+def get_ip():
+    # 获取服务器IP地址
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+    except Exception:
+        ip = '127.0.0.1'
+    finally:
+        s.close()
+    return ip
+
+def start_http_server(port=8000):
+    # 启动HTTP服务器
+    server_address = ('', port)
+    httpd = HTTPServer(server_address, SimpleHTTPRequestHandler)
+    server_thread = threading.Thread(target=httpd.serve_forever)
+    server_thread.daemon = True
+    server_thread.start()
+    return httpd
 
 def get_douyin_cookie_cloud():
     """使用selenium获取抖音cookie"""
@@ -199,17 +223,16 @@ def get_douyin_cookie_cloud():
                     # 获取二维码的src属性
                     qr_src = qr_element.get_attribute("src")
                     if qr_src and qr_src.startswith("data:image/png;base64,"):
-                        # 创建小型二维码
                         # 解析二维码数据
                         qr_data = qr_src.replace("data:image/png;base64,", "")
                         qr_bytes = base64.b64decode(qr_data)
                         
-                        # 创建新的二维码，使用最小版本和最小边框
+                        # 创建新的二维码
                         qr = qrcode.QRCode(
                             version=1,
                             error_correction=qrcode.constants.ERROR_CORRECT_L,
-                            box_size=1,
-                            border=0
+                            box_size=2,  # 增大一点以确保清晰度
+                            border=1
                         )
                         qr.add_data(qr_bytes)
                         qr.make(fit=True)
@@ -220,16 +243,17 @@ def get_douyin_cookie_cloud():
                         print('3. 点击右上角"扫一扫"')
                         print("4. 扫描下面的二维码：\n")
                         
-                        # 使用更小的点和空格显示二维码
+                        # 使用方块字符显示二维码
                         matrix = qr.get_matrix()
                         for row in matrix:
                             line = ""
                             for cell in row:
                                 if cell:
-                                    line += "."  # 使用点号代表黑块
+                                    line += "█"  # 使用实心方块
                                 else:
-                                    line += " "  # 使用空格代表白块
-                            print(line)
+                                    line += " "  # 使用空格
+                            # 重复每行以使二维码更大更清晰
+                            print(line + line)
                         
                         print("\n⏳ 等待登录成功...")
                         print("   请使用抖音APP扫描二维码完成登录")
@@ -299,11 +323,11 @@ def get_douyin_cookie_cloud():
             
             print(f"✅ Cookie已保存到: {cookie_file}")
             print("🎉 抖音账号配置完成！")
-            return True
+            return cookies
             
         else:
             print("❌ 登录超时，请重新运行脚本")
-            return False
+            return None
             
     except Exception as e:
         print(f"❌ 获取cookie失败: {e}")
@@ -316,7 +340,7 @@ def get_douyin_cookie_cloud():
                 print("📄 已保存错误页面源码到 douyin_error.html")
             except:
                 pass
-        return False
+        return None
         
     finally:
         if driver:
@@ -324,6 +348,14 @@ def get_douyin_cookie_cloud():
                 driver.quit()
             except:
                 pass
+        # 清理临时文件
+        try:
+            os.remove(os.path.join("temp_qrcodes", "login_qrcode.png"))
+        except:
+            pass
+        # 关闭HTTP服务器
+        server.shutdown()
+        server.server_close()
 
 if __name__ == '__main__':
     print("🤖 抖音Cookie获取工具 (云服务器版)")
@@ -335,9 +367,9 @@ if __name__ == '__main__':
     print(f"Chrome路径: {'/usr/bin/google-chrome-stable'}")
     print(f"ChromeDriver路径: {'/usr/bin/chromedriver'}")
     
-    result = get_douyin_cookie_cloud()
+    cookies = get_douyin_cookie_cloud()
     
-    if result:
+    if cookies:
         print("\n✅ 设置完成！现在可以运行批量上传命令:")
         print("python3 batch_upload_by_date.py --platform douyin --date 2025-07-03 --no-schedule")
     else:
