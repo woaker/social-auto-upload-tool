@@ -17,6 +17,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import undetected_chromedriver as uc
 import base64
+from urllib.parse import urlparse, parse_qs
 
 def get_douyin_cookie_cloud():
     """使用selenium获取抖音cookie"""
@@ -199,19 +200,16 @@ def get_douyin_cookie_cloud():
                     qr_src = qr_element.get_attribute("src")
                     if qr_src and qr_src.startswith("data:image/png;base64,"):
                         # 创建小型二维码
-                        import qrcode
-                        from urllib.parse import urlparse, parse_qs
-                        
                         # 解析二维码数据
                         qr_data = qr_src.replace("data:image/png;base64,", "")
                         qr_bytes = base64.b64decode(qr_data)
                         
-                        # 创建新的二维码，使用最小版本
+                        # 创建新的二维码，使用最小版本和最小边框
                         qr = qrcode.QRCode(
                             version=1,
                             error_correction=qrcode.constants.ERROR_CORRECT_L,
                             box_size=1,
-                            border=1
+                            border=0
                         )
                         qr.add_data(qr_bytes)
                         qr.make(fit=True)
@@ -222,15 +220,15 @@ def get_douyin_cookie_cloud():
                         print('3. 点击右上角"扫一扫"')
                         print("4. 扫描下面的二维码：\n")
                         
-                        # 使用单个字符显示二维码
+                        # 使用更小的点和空格显示二维码
                         matrix = qr.get_matrix()
                         for row in matrix:
                             line = ""
                             for cell in row:
                                 if cell:
-                                    line += "#"  # 使用单个#号代表一个黑块
+                                    line += "."  # 使用点号代表黑块
                                 else:
-                                    line += " "  # 使用单个空格代表一个白块
+                                    line += " "  # 使用空格代表白块
                             print(line)
                         
                         print("\n⏳ 等待登录成功...")
@@ -250,7 +248,7 @@ def get_douyin_cookie_cloud():
         
         # 等待登录成功
         print("⏳ 等待登录成功...")
-        print("   请使用抖音APP扫描二维码完成登录")
+        print("   请使用抖音APP完成登录")
         
         success = False
         max_wait = 300  # 最多等待5分钟
