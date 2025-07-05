@@ -206,9 +206,8 @@ def get_douyin_cookie_cloud():
                 )
                 mini_qr.add_data(qr_src)
                 mini_qr.make(fit=True)
-                # 使用更紧凑的字符来显示二维码
                 print("请使用抖音扫描下面的二维码：")
-                mini_qr.print_ascii(tty=True, invert=True, out=None, chars=' ▄█')
+                mini_qr.print_ascii(tty=True, invert=True)
             except Exception as e:
                 print(f"   无法显示二维码: {e}")
                 print("   请使用上面的链接")
