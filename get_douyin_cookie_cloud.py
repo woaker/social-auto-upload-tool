@@ -195,9 +195,13 @@ def get_douyin_cookie_cloud():
             
             # 生成二维码到终端
             try:
-                qr = qrcode.QRCode()
+                qr = qrcode.QRCode(
+                    version=1,
+                    box_size=1,
+                    border=1
+                )
                 qr.add_data(qr_src)
-                qr.print_ascii()
+                qr.print_ascii(tty=True)
             except Exception as e:
                 print(f"   无法显示二维码: {e}")
                 print("   请访问上面的链接")
