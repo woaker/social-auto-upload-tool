@@ -20,6 +20,11 @@ from playwright.async_api import async_playwright
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
 import markdown
+import openai
+from typing import Optional, Dict, List
+import json
+import argparse
+import traceback
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -39,6 +44,50 @@ class WechatSyncStyleFormatter:
             'shell': 'Shell', 'bash': 'Bash', 'sql': 'SQL',
             'json': 'JSON', 'xml': 'XML', 'yaml': 'YAML'
         }
+        self.markdown_converter = markdown.Markdown(extensions=['fenced_code', 'tables'])
+    
+    def _simple_markdown_to_text(self, text):
+        """简化的Markdown到文本转换 - 优化版"""
+        if not text:
+            return ""
+        
+        # 处理标题
+        text = re.sub(r'^#{1}\s+(.+)$', r'\n# \1\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{2}\s+(.+)$', r'\n## \1\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{3}\s+(.+)$', r'\n### \1\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{4}\s+(.+)$', r'\n#### \1\n', text, flags=re.MULTILINE)
+        text = re.sub(r'^#{5,6}\s+(.+)$', r'\n##### \1\n', text, flags=re.MULTILINE)
+        
+        # 处理代码块
+        def replace_code_block(match):
+            language = match.group(1) if match.group(1) else ''
+            code = match.group(2)
+            return self._format_code_block(code, language)
+        
+        text = re.sub(r'```(\w*)\n(.*?)\n```', replace_code_block, text, flags=re.DOTALL)
+        
+        # 处理内联代码
+        text = re.sub(r'`([^`]+)`', r'`\1`', text)
+        
+        # 处理粗体和斜体
+        text = re.sub(r'\*\*([^*]+)\*\*', r'**\1**', text)
+        text = re.sub(r'\*([^*]+)\*', r'*\1*', text)
+        
+        # 处理引用
+        text = re.sub(r'^>\s*(.+)$', r'> \1', text, flags=re.MULTILINE)
+        
+        # 处理列表
+        text = re.sub(r'^[-*+]\s+(.+)$', r'- \1', text, flags=re.MULTILINE)
+        text = re.sub(r'^\d+\.\s+(.+)$', r'1. \1', text, flags=re.MULTILINE)
+        
+        # 处理链接
+        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\1', text)
+        
+        # 处理分隔线
+        text = re.sub(r'^---+$', '---', text, flags=re.MULTILINE)
+        
+        # 后处理
+        return self._postprocess_text(text)
     
     def html_to_text(self, html_content):
         """将HTML转换为清晰的文本格式 - 优化版"""
@@ -140,7 +189,7 @@ class WechatSyncStyleFormatter:
         elif tag == 'span' and element.get('data-type') == 'link':
             text = element.get_text()
             href = element.get('data-href', '')
-            return f"[{text}]({href})"
+            return f"{text}"  # 不显示链接URL，保持文章整洁
         
         # 处理子元素
         children_text = []
@@ -157,7 +206,7 @@ class WechatSyncStyleFormatter:
             return self._format_heading(text, level)
         
         elif tag == 'p':
-            return text if text else ""  # 移除段落标签的额外换行
+            return text + "\n\n" if text else ""
         
         elif tag in ['strong', 'b']:
             return f"**{text}**" if text else ""
@@ -181,7 +230,7 @@ class WechatSyncStyleFormatter:
             return "\n---\n"
         
         elif tag in ['div', 'section', 'article']:
-            return text if text else ""
+            return text + "\n\n" if text else ""
         
         elif tag == 'table':
             return self._format_table(element)
@@ -195,19 +244,9 @@ class WechatSyncStyleFormatter:
             return ""
         
         text = text.strip()
+        prefix = "#" * level
         
-        if level == 1:
-            return f"\n# {text}\n"
-        elif level == 2:
-            return f"\n## {text}\n"
-        elif level == 3:
-            return f"\n### {text}\n"
-        elif level == 4:
-            return f"\n#### {text}\n"
-        elif level == 5:
-            return f"\n##### {text}\n"
-        else:
-            return f"\n###### {text}\n"
+        return f"\n\n{prefix} {text}\n\n"
     
     def _format_code_block(self, code_text, language=''):
         """格式化代码块 - 优化版"""
@@ -215,202 +254,104 @@ class WechatSyncStyleFormatter:
             return ""
         
         code_text = code_text.strip()
+        lang_text = f" ({language})" if language else ""
         
-        if language:
-            lang_display = self.code_languages.get(language.lower(), language)
-            return f"\n```{language.lower()}\n{code_text}\n```\n"
-        else:
-            return f"\n```\n{code_text}\n```\n"
+        return f"\n```{language.lower()}\n{code_text}\n```\n\n"
     
     def _format_list(self, element, list_type):
         """格式化列表 - 优化版"""
         items = []
+        index = 1
         
-        for i, li in enumerate(element.find_all('li', recursive=False), 1):
-            li_text = self._element_to_text(li)
-            if li_text:
+        for li in element.find_all('li', recursive=False):
+            text = self._element_to_text(li).strip()
+            if text:
                 if list_type == 'ol':
-                    items.append(f"{i}. {li_text}")
+                    items.append(f"{index}. {text}")
+                    index += 1
                 else:
-                    items.append(f"- {li_text}")
+                    items.append(f"- {text}")
         
-        if items:
-            return f"\n" + "\n".join(items) + "\n"
-        return ""
+        return "\n" + "\n".join(items) + "\n\n" if items else ""
     
     def _format_quote(self, text):
-        """格式化引用 - 优化版"""
+        """格式化引用块 - 优化版"""
         if not text:
             return ""
         
-        text = text.strip()
-        lines = text.split('\n')
+        lines = text.strip().split('\n')
         quoted_lines = [f"> {line.strip()}" for line in lines if line.strip()]
         
-        if quoted_lines:
-            return f"\n" + "\n".join(quoted_lines) + "\n"
-        return ""
+        return "\n" + "\n".join(quoted_lines) + "\n\n"
     
     def _format_table(self, table_element):
         """格式化表格 - 优化版"""
-        if not table_element:
-            return ""
+        rows = []
+        header_cells = []
         
-        table_text = table_element.get_text().strip()
-        return f"\n{table_text}\n" if table_text else ""
+        # 处理表头
+        header_row = table_element.find('tr')
+        if header_row:
+            for th in header_row.find_all(['th', 'td']):
+                text = th.get_text().strip()
+                header_cells.append(text)
+            
+            if header_cells:
+                rows.append("| " + " | ".join(header_cells) + " |")
+                rows.append("| " + " | ".join(['---'] * len(header_cells)) + " |")
+        
+        # 处理数据行
+        for tr in table_element.find_all('tr')[1:]:
+            cells = []
+            for td in tr.find_all('td'):
+                text = td.get_text().strip()
+                cells.append(text)
+            if cells:
+                rows.append("| " + " | ".join(cells) + " |")
+        
+        return "\n" + "\n".join(rows) + "\n\n" if rows else ""
     
     def _postprocess_text(self, text):
-        """后处理文本 - 优化版，解决空行过多问题"""
+        """后处理文本 - 优化版"""
         if not text:
             return ""
         
-        # 统一换行符
-        text = text.replace('\r\n', '\n').replace('\r', '\n')
+        # 清理多余的空行
+        text = re.sub(r'\n{3,}', '\n\n', text)
         
-        # 先做基础的空行清理
-        text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+        # 确保代码块前后有空行
+        text = re.sub(r'([^\n])\n```', r'\1\n\n```', text)
+        text = re.sub(r'```\n([^\n])', r'```\n\n\1', text)
         
-        # 处理段落内容，智能添加换行
-        lines = text.split('\n')
-        processed_lines = []
+        # 确保标题前后有空行
+        text = re.sub(r'([^\n])\n(#{1,6} )', r'\1\n\n\2', text)
+        text = re.sub(r'(#{1,6} .*)\n([^\n])', r'\1\n\n\2', text)
         
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            processed_lines.append(line)
-            
-            # 如果是标题，确保后面有空行
-            if re.match(r'^#{1,6}\s', line):
-                if i < len(lines) - 1 and lines[i + 1].strip():
-                    processed_lines.append('')
-            
-            # 如果是代码块开始标记
-            elif line.strip().startswith('```'):
-                # 找到代码块结束标记
-                j = i + 1
-                while j < len(lines) and not lines[j].strip().startswith('```'):
-                    j += 1
-                
-                # 复制代码块内容
-                for k in range(i + 1, j + 1):
-                    if k < len(lines):
-                        processed_lines.append(lines[k])
-                
-                # 确保代码块后有空行
-                if j < len(lines) - 1 and lines[j + 1].strip():
-                    processed_lines.append('')
-                
-                i = j  # 跳过已处理的代码块
-            
-            # 如果是列表项，不添加额外空行
-            elif re.match(r'^[-*+]\s', line.strip()) or re.match(r'^\d+\.\s', line.strip()):
-                pass  # 列表项之间不添加空行
-            
-            # 如果是引用，不添加额外空行
-            elif line.strip().startswith('>'):
-                pass  # 引用行之间不添加空行
-            
-            # 普通文本行的处理
-            elif line.strip():
-                # 检查下一行是否也是普通文本且够长
-                if (i < len(lines) - 1 and 
-                    lines[i + 1].strip() and
-                    len(line.strip()) > 50 and  # 当前行足够长
-                    len(lines[i + 1].strip()) > 50 and  # 下一行也足够长
-                    not lines[i + 1].startswith(('#', '>', '-', '*', '+', '```', '|')) and
-                    not line.endswith(('。', '！', '？', '；', '：', '，'))):  # 不是句子结尾
-                    processed_lines.append('')  # 添加空行分隔段落
-            
-            i += 1
+        # 确保引用块前后有空行
+        text = re.sub(r'([^\n])\n>', r'\1\n\n>', text)
+        text = re.sub(r'>\s*\n([^\n>])', r'>\n\n\1', text)
         
-        result = '\n'.join(processed_lines)
+        # 确保列表项之间没有空行，但列表前后有空行
+        text = re.sub(r'\n\n([-*+]|\d+\.)\s', r'\n\1 ', text)
+        text = re.sub(r'([^\n])\n([-*+]|\d+\.)\s', r'\1\n\n\2 ', text)
+        text = re.sub(r'([-*+]|\d+\.)\s.*\n([^\n-*+\d])', r'\1\n\n\2', text)
         
-        # 最终清理
-        # 清理标题前后的多余空行
-        result = re.sub(r'\n+(#{1,6}\s)', r'\n\n\1', result)
-        result = re.sub(r'(#{1,6}\s[^\n]*)\n+', r'\1\n\n', result)
-        
-        # 清理代码块前后的多余空行
-        result = re.sub(r'\n+(```)', r'\n\n\1', result)
-        result = re.sub(r'(```[^\n]*\n[\s\S]*?\n```)\n+', r'\1\n\n', result)
-        
-        # 确保列表前后有适当的空行
-        result = re.sub(r'\n+([-*+]\s)', r'\n\n\1', result)
-        result = re.sub(r'((?:^[-*+]\s[^\n]*\n)+)\n*', r'\1\n', result, flags=re.MULTILINE)
-        
-        # 确保引用前后有适当的空行
-        result = re.sub(r'\n+(>\s)', r'\n\n\1', result)
-        result = re.sub(r'((?:^>\s[^\n]*\n)+)\n*', r'\1\n', result, flags=re.MULTILINE)
-        
-        # 最终清理：确保没有超过两个连续的空行
-        result = re.sub(r'\n{3,}', '\n\n', result)
-        
-        # 清理开头和结尾的空行
-        result = result.strip()
-        
-        return result
+        return text.strip()
     
     def markdown_to_text(self, markdown_content):
-        """将Markdown转换为文本格式 - 优化版"""
+        """将Markdown转换为优化的文本格式"""
         if not markdown_content:
             return ""
         
-        # 先转换为HTML，再转换为文本
         try:
-            md = markdown.Markdown(extensions=[
-                'markdown.extensions.extra',
-                'markdown.extensions.codehilite',
-                'markdown.extensions.tables',
-                'markdown.extensions.toc'
-            ])
-            html = md.convert(markdown_content)
-            return self.html_to_text(html)
+            # 将Markdown转换为HTML
+            html_content = self.markdown_converter.convert(markdown_content)
+            
+            # 将HTML转换为优化的文本格式
+            return self.html_to_text(html_content)
         except Exception as e:
             print(f"⚠️ Markdown转换失败，使用简化转换: {e}")
             return self._simple_markdown_to_text(markdown_content)
-    
-    def _simple_markdown_to_text(self, text):
-        """简化的Markdown到文本转换 - 优化版"""
-        if not text:
-            return ""
-        
-        # 处理标题
-        text = re.sub(r'^#{1}\s+(.+)$', r'\n# \1\n', text, flags=re.MULTILINE)
-        text = re.sub(r'^#{2}\s+(.+)$', r'\n## \1\n', text, flags=re.MULTILINE)
-        text = re.sub(r'^#{3}\s+(.+)$', r'\n### \1\n', text, flags=re.MULTILINE)
-        text = re.sub(r'^#{4}\s+(.+)$', r'\n#### \1\n', text, flags=re.MULTILINE)
-        text = re.sub(r'^#{5,6}\s+(.+)$', r'\n##### \1\n', text, flags=re.MULTILINE)
-        
-        # 处理代码块
-        def replace_code_block(match):
-            language = match.group(1) if match.group(1) else ''
-            code = match.group(2)
-            return self._format_code_block(code, language)
-        
-        text = re.sub(r'```(\w*)\n(.*?)\n```', replace_code_block, text, flags=re.DOTALL)
-        
-        # 处理内联代码
-        text = re.sub(r'`([^`]+)`', r'`\1`', text)
-        
-        # 处理粗体和斜体
-        text = re.sub(r'\*\*([^*]+)\*\*', r'**\1**', text)
-        text = re.sub(r'\*([^*]+)\*', r'*\1*', text)
-        
-        # 处理引用
-        text = re.sub(r'^>\s*(.+)$', r'> \1', text, flags=re.MULTILINE)
-        
-        # 处理列表
-        text = re.sub(r'^[-*+]\s+(.+)$', r'- \1', text, flags=re.MULTILINE)
-        text = re.sub(r'^\d+\.\s+(.+)$', r'1. \1', text, flags=re.MULTILINE)
-        
-        # 处理链接
-        text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'[\1](\2)', text)
-        
-        # 处理分隔线
-        text = re.sub(r'^---+$', '---', text, flags=re.MULTILINE)
-        
-        # 后处理
-        return self._postprocess_text(text)
 
 class EnhancedArticleForwarder:
     """增强版文章转发工具"""
@@ -573,32 +514,24 @@ class EnhancedArticleForwarder:
             if tag_name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
                 level = int(tag_name[1])
                 if content:
-                    # 使用不同的装饰符表示标题层级
-                    if level == 1:
-                        return f"\n\n{'=' * 50}\n{content}\n{'=' * 50}\n\n"
-                    elif level == 2:
-                        return f"\n\n{'-' * 40}\n{content}\n{'-' * 40}\n\n"
-                    elif level == 3:
-                        return f"\n\n▶ {content}\n{'-' * len(content)}\n\n"
-                    else:
-                        return f"\n\n● {content}\n\n"
+                    return f"\n\n{content}\n\n"
             
             elif tag_name == 'p':
                 return f"\n\n{content}\n\n"
             
             elif tag_name in ['strong', 'b']:
-                return f"【{content}】"  # 使用中文括号表示粗体
+                return content  # 不添加特殊标记，依赖编辑器的富文本功能
             
             elif tag_name in ['em', 'i']:
-                return f"《{content}》"  # 使用书名号表示斜体
+                return content  # 不添加特殊标记，依赖编辑器的富文本功能
             
             elif tag_name == 'code':
                 if content:
-                    return f"「{content}」"  # 使用直角引号表示代码
+                    return content  # 不添加特殊标记，依赖编辑器的富文本功能
             
             elif tag_name == 'pre':
                 if content:
-                    return f"\n\n┌─ 代码示例 ─┐\n{content}\n└─────────┘\n\n"
+                    return f"\n\n{content}\n\n"
             
             elif tag_name in ['ul', 'ol']:
                 if children_text:
@@ -610,28 +543,26 @@ class EnhancedArticleForwarder:
             
             elif tag_name == 'blockquote':
                 if content:
-                    lines = content.split('\n')
-                    quoted_lines = [f"┃ {line.strip()}" for line in lines if line.strip()]
-                    return f"\n\n" + "\n".join(quoted_lines) + "\n\n"
+                    return f"\n\n{content}\n\n"
             
             elif tag_name == 'a':
                 href = element.get('href', '')
-                if text_content and href:
-                    return f"{text_content}（{href}）"
+                if content and href:
+                    return content  # 不显示链接URL，保持文章整洁
                 else:
-                    return text_content
+                    return content
             
             elif tag_name == 'table':
-                return f"\n\n📊 表格数据：\n{content}\n\n"
+                return f"\n\n{content}\n\n"
             
             elif tag_name in ['th', 'td']:
-                return f" {content} |"
+                return f"{content} |"
             
             elif tag_name == 'tr':
                 return f"|{content}\n"
             
             elif tag_name == 'hr':
-                return f"\n\n{'─' * 50}\n\n"
+                return "\n\n---\n\n"
             
             elif tag_name == 'br':
                 return "\n"
@@ -642,9 +573,10 @@ class EnhancedArticleForwarder:
         # 处理整个HTML文档
         result = process_html_element(soup)
         
-        # 清理多余的空行
+        # 清理多余的空行和空格
         if result:
-            result = re.sub(r'\n{3,}', '\n\n', result)
+            result = re.sub(r'\n{3,}', '\n\n', result)  # 将3个以上的换行替换为2个
+            result = re.sub(r'[ \t]+', ' ', result)  # 将多个空格替换为1个
             result = result.strip()
         
         return result
@@ -1204,155 +1136,314 @@ class EnhancedArticleForwarder:
             return None, None, None
     
     def _enhance_content_format(self, title, content, url, use_rich_text=True):
-        """增强内容格式 - wechatSync简洁风格"""
-        # 构建基础内容结构
-        enhanced_content = f"# {title}\n\n"
-        
-        # 添加来源信息 - 简洁样式
-        enhanced_content += f"> **原文链接**: {url}\n"
-        enhanced_content += f"> **转发时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-        enhanced_content += f"> **内容优化**: 已优化排版格式，提升阅读体验\n\n"
-        enhanced_content += "---\n\n"
-        
-        # 处理主要内容
-        if content:
-            # 使用简洁风格格式化器处理内容
-            if use_rich_text:
-                print("🎨 正在使用wechatSync简洁风格格式化器处理内容...")
-                # 如果内容是HTML，直接转换
-                if '<' in content and '>' in content:
-                    formatted_content = self.formatter.html_to_text(content)
-                else:
-                    # 如果是Markdown，先转换
-                    formatted_content = self.formatter.markdown_to_text(content)
-                
-                # 调整标题层级（避免与主标题冲突）
-                formatted_content = re.sub(r'^# ', '## ', formatted_content, flags=re.MULTILINE)
-                formatted_content = re.sub(r'^## ', '### ', formatted_content, flags=re.MULTILINE)
-                
-                enhanced_content += formatted_content
-            else:
-                # 简单文本处理
-                content = self._clean_text(content)
-                # 应用基本格式化
-                content = self.formatter._simple_markdown_to_text(content)
-                enhanced_content += content
-        else:
-            enhanced_content += "暂无内容摘要，请查看原文链接获取完整内容。\n\n"
-        
-        print(f"✅ 内容格式化完成，最终长度: {len(enhanced_content)} 字符")
-        print(f"📝 格式化特性: 简洁标题、清晰代码块、适当段落间距")
-        return enhanced_content
-    
-    def _optimize_content_spacing(self, content):
-        """优化内容间距"""
+        """增强内容格式化 - V3版本"""
         if not content:
             return ""
         
-        # 确保代码块前后有空行
-        content = re.sub(r'([^\n])\n(```)', r'\1\n\n\2', content)
-        content = re.sub(r'(```[^\n]*\n.*?\n```)\n([^\n])', r'\1\n\n\2', content, flags=re.DOTALL)
+        # 添加文章来源信息
+        source_info = f"""
+> **原文链接**: {url}
+> **转发时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+> **内容优化**: 已优化排版格式，提升阅读体验
+
+---
+
+"""
         
-        # 确保标题前后有空行
-        content = re.sub(r'([^\n])\n(#{1,6}\s)', r'\1\n\n\2', content)
-        content = re.sub(r'(#{1,6}\s[^\n]*)\n([^\n#])', r'\1\n\n\2', content)
+        # 处理正文内容
+        content = content.strip()
         
-        # 确保列表前后有空行
-        content = re.sub(r'([^\n])\n([-*+]\s|[0-9]+\.\s)', r'\1\n\n\2', content)
+        # 1. 优化标题格式
+        if title and not content.startswith('# '):
+            content = f"# {title}\n\n{content}"
         
-        # 确保引用前后有空行
-        content = re.sub(r'([^\n])\n(>\s)', r'\1\n\n\2', content)
+        # 2. 优化段落格式
+        paragraphs = content.split('\n\n')
+        formatted_paragraphs = []
         
-        # 清理多余的空行
-        content = re.sub(r'\n{4,}', '\n\n\n', content)
-        content = re.sub(r'\n{3}', '\n\n', content)
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+                
+            # 处理标题
+            if para.startswith('#'):
+                formatted_paragraphs.append(f"\n{para}\n")
+                continue
+            
+            # 处理代码块
+            if para.startswith('```'):
+                formatted_paragraphs.append(para)
+                continue
+            
+            # 处理引用块
+            if para.startswith('>'):
+                lines = para.split('\n')
+                formatted_lines = []
+                for line in lines:
+                    if line.startswith('>'):
+                        formatted_lines.append(line)
+                    else:
+                        formatted_lines.append(f"> {line}")
+                formatted_paragraphs.append('\n'.join(formatted_lines))
+                continue
+            
+            # 处理列表
+            if re.match(r'^[-*+]\s|^\d+\.\s', para):
+                lines = para.split('\n')
+                # 保持列表项的原始缩进
+                formatted_paragraphs.append('\n'.join(lines))
+                continue
+            
+            # 处理普通段落
+            # 将段落内的多个空格合并为一个
+            para = re.sub(r'\s+', ' ', para)
+            # 确保中文和英文之间有空格
+            para = re.sub(r'([a-zA-Z])([\u4e00-\u9fff])', r'\1 \2', para)
+            para = re.sub(r'([\u4e00-\u9fff])([a-zA-Z])', r'\1 \2', para)
+            # 修复中文标点后面的空格
+            para = re.sub(r'([，。！？；：、])\s+', r'\1', para)
+            
+            formatted_paragraphs.append(para)
+        
+        # 3. 合并处理后的内容
+        content = '\n\n'.join(formatted_paragraphs)
+        
+        # 4. 添加文章来源信息
+        content = source_info + content
+        
+        # 5. 最终的格式清理
+        content = re.sub(r'\n{3,}', '\n\n', content)  # 删除多余的空行
+        content = re.sub(r'[ \t]+\n', '\n', content)  # 删除行尾空格
+        content = content.strip()
+        
+        if use_rich_text:
+            print("🎨 正在使用wechatSync简洁风格格式化器处理内容...")
+            content = self.formatter.markdown_to_text(content)
+            print(f"✅ 内容格式化完成，最终长度: {len(content)} 字符")
+            print("📝 格式化特性: 简洁标题、清晰代码块、适当段落间距")
         
         return content
     
-    def _smart_format_content(self, content):
-        """智能格式化内容"""
+    def _optimize_content_spacing(self, content):
+        """优化内容间距 - V2版本"""
         if not content:
             return ""
         
-        # 确保标题层级正确（避免与主标题冲突）
-        content = re.sub(r'^# ', '## ', content, flags=re.MULTILINE)
-        content = re.sub(r'^## ', '### ', content, flags=re.MULTILINE)
-        content = re.sub(r'^### ', '#### ', content, flags=re.MULTILINE)
-        content = re.sub(r'^#### ', '##### ', content, flags=re.MULTILINE)
+        # 1. 标准化换行符
+        content = content.replace('\r\n', '\n').replace('\r', '\n')
         
-        # 修复代码块格式
+        # 2. 处理标题间距
+        content = re.sub(r'\n(#{1,6}\s+[^\n]+)\n', r'\n\n\1\n\n', content)
+        
+        # 3. 处理代码块间距
+        content = re.sub(r'\n```([^\n]*)\n', r'\n\n```\1\n', content)
+        content = re.sub(r'\n```\n', r'\n```\n\n', content)
+        
+        # 4. 处理列表格式
+        def format_list(match):
+            list_content = match.group(0)
+            lines = list_content.split('\n')
+            # 保持列表项之间的紧凑性，但在列表前后添加空行
+            return f"\n\n{list_content}\n\n"
+        
+        content = re.sub(r'((?:^[-*+]\s+[^\n]+\n?)+)', format_list, content, flags=re.MULTILINE)
+        content = re.sub(r'((?:^\d+\.\s+[^\n]+\n?)+)', format_list, content, flags=re.MULTILINE)
+        
+        # 5. 处理引用块格式
+        def format_quote(match):
+            quote_content = match.group(0)
+            lines = quote_content.split('\n')
+            formatted_lines = []
+            for line in lines:
+                if line.strip():
+                    if not line.startswith('>'):
+                        line = f"> {line}"
+                    formatted_lines.append(line)
+            return '\n\n' + '\n'.join(formatted_lines) + '\n\n'
+        
+        content = re.sub(r'((?:^>\s+[^\n]+\n?)+)', format_quote, content, flags=re.MULTILINE)
+        
+        # 6. 优化段落间距
+        paragraphs = content.split('\n\n')
+        formatted_paragraphs = []
+        
+        for para in paragraphs:
+            para = para.strip()
+            if para:
+                # 处理段落内的换行
+                lines = para.split('\n')
+                # 如果是普通段落且行数大于1，进行特殊处理
+                if len(lines) > 1 and not any(line.startswith(('#', '>', '-', '*', '+', '```', '|')) for line in lines):
+                    # 将多行合并为一个段落
+                    para = ' '.join(line.strip() for line in lines)
+                formatted_paragraphs.append(para)
+        
+        content = '\n\n'.join(formatted_paragraphs)
+        
+        # 7. 最终清理
+        content = re.sub(r'\n{3,}', '\n\n', content)  # 删除多余的空行
+        content = re.sub(r'[ \t]+\n', '\n', content)  # 删除行尾空格
+        
+        return content.strip()
+    
+    def _smart_format_content(self, content):
+        """智能格式化内容 - V2版本"""
+        if not content:
+            return ""
+        
+        # 1. 优化代码块
         content = self._fix_code_blocks(content)
         
-        # 优化段落分隔
+        # 2. 优化段落
         content = self._optimize_paragraphs(content)
         
-        # 优化列表格式
+        # 3. 优化列表
         content = self._optimize_lists(content)
         
-        # 添加emoji增强可读性
+        # 4. 添加上下文表情符号
         content = self._add_contextual_emojis(content)
         
         return content
     
     def _fix_code_blocks(self, content):
         """修复代码块格式"""
-        # 修复代码块格式（确保前后有空行）
-        content = re.sub(r'```(\w*)\n', r'\n```\1\n', content)
-        content = re.sub(r'\n```\n', r'\n```\n\n', content)
+        if not content:
+            return ""
         
-        # 修复内联代码格式（确保前后有适当空格）
-        content = re.sub(r'([^\s])`([^`]+)`([^\s])', r'\1 `\2` \3', content)
+        # 确保代码块有语言标识
+        def replace_code_block(match):
+            lang = match.group(1) or ''
+            code = match.group(2)
+            
+            # 检测代码语言
+            if not lang:
+                # 简单的语言检测逻辑
+                if 'function' in code or 'var' in code or 'const' in code:
+                    lang = 'javascript'
+                elif 'def' in code or 'import' in code:
+                    lang = 'python'
+                elif '<' in code and '>' in code:
+                    lang = 'html'
+                else:
+                    lang = 'plaintext'
+            
+            return f"```{lang}\n{code.strip()}\n```"
+        
+        content = re.sub(r'```(\w*)\n(.*?)\n```', replace_code_block, content, flags=re.DOTALL)
         
         return content
     
     def _optimize_paragraphs(self, content):
-        """优化段落分隔"""
-        # 确保段落之间有适当的空行
-        lines = content.split('\n')
-        optimized_lines = []
+        """优化段落格式"""
+        if not content:
+            return ""
         
-        for i, line in enumerate(lines):
-            optimized_lines.append(line)
+        # 1. 处理段落间距
+        paragraphs = content.split('\n\n')
+        formatted_paragraphs = []
+        
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
             
-            # 如果当前行不是空行，下一行也不是空行，且下一行不是特殊格式
-            if (i < len(lines) - 1 and 
-                line.strip() and 
-                lines[i + 1].strip() and
-                not lines[i + 1].startswith(('#', '>', '-', '*', '+', '1.', '```', '|')) and
-                not line.startswith(('#', '>', '-', '*', '+', '```', '|'))):
+            # 特殊块保持原格式
+            if any(para.startswith(prefix) for prefix in ('#', '```', '>', '-', '*', '+', '|')):
+                formatted_paragraphs.append(para)
+                continue
+            
+            # 普通段落处理
+            # 合并多行
+            lines = para.split('\n')
+            if len(lines) > 1:
+                # 将多行合并为一个段落，除非行结束有标点
+                merged_lines = []
+                current_line = []
                 
-                # 检查是否需要添加空行
-                if not any(lines[i + 1].startswith(prefix) for prefix in ['•', '┃', '【', '《']):
-                    optimized_lines.append('')
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    if current_line and not any(line.endswith(punct) for punct in '。！？；：，.!?;:,'): 
+                        current_line.append(line)
+                    else:
+                        if current_line:
+                            merged_lines.append(' '.join(current_line))
+                        current_line = [line]
+                
+                if current_line:
+                    merged_lines.append(' '.join(current_line))
+                
+                para = '\n'.join(merged_lines)
+            
+            formatted_paragraphs.append(para)
         
-        return '\n'.join(optimized_lines)
+        return '\n\n'.join(formatted_paragraphs)
     
     def _optimize_lists(self, content):
         """优化列表格式"""
-        # 确保列表项前后有适当的空行
-        content = re.sub(r'^([-*+•]\s.+)$', r'\n\1', content, flags=re.MULTILINE)
-        content = re.sub(r'^(\d+\.\s.+)$', r'\n\1', content, flags=re.MULTILINE)
+        if not content:
+            return ""
         
-        # 清理多余的空行
-        content = re.sub(r'\n{3,}', '\n\n', content)
+        # 处理无序列表
+        def format_unordered_list(match):
+            items = match.group(0).split('\n')
+            return '\n'.join(f"- {item.lstrip('- ').strip()}" for item in items if item.strip())
+        
+        content = re.sub(r'(?:^|\n)(?:[-*+]\s+[^\n]+\n?)+', format_unordered_list, content)
+        
+        # 处理有序列表
+        def format_ordered_list(match):
+            items = match.group(0).split('\n')
+            formatted_items = []
+            for i, item in enumerate(items, 1):
+                if item.strip():
+                    item_content = re.sub(r'^\d+\.\s*', '', item).strip()
+                    formatted_items.append(f"{i}. {item_content}")
+            return '\n'.join(formatted_items)
+        
+        content = re.sub(r'(?:^|\n)(?:\d+\.\s+[^\n]+\n?)+', format_ordered_list, content)
         
         return content
     
     def _add_contextual_emojis(self, content):
-        """根据上下文添加emoji"""
-        # 为特定关键词段落添加emoji
-        emoji_patterns = {
-            r'^(注意|警告|重要)': '⚠️',
-            r'^(技巧|技术|方法)': '💡',
-            r'^(示例|例子|演示)': '💻',
-            r'^(总结|结论|小结)': '📋',
-            r'^(优点|好处|优势)': '✅',
-            r'^(缺点|问题|错误)': '❌',
-            r'^(步骤|流程|过程)': '📝'
+        """添加上下文表情符号"""
+        if not content:
+            return ""
+        
+        # 标题表情映射
+        title_emoji_map = {
+            '介绍': '📝', '简介': '📝',
+            '安装': '⚙️', '配置': '⚙️',
+            '使用': '🔨', '用法': '🔨',
+            '示例': '💡', '例子': '💡',
+            '注意': '⚠️', '警告': '⚠️',
+            '总结': '📌', '结论': '📌',
+            '问题': '❓', '解决': '✅',
+            '特性': '✨', '功能': '✨',
+            '步骤': '📋', '流程': '📋',
+            '代码': '💻', '实现': '💻'
         }
         
-        for pattern, emoji in emoji_patterns.items():
-            content = re.sub(pattern, f'{emoji} \\1', content, flags=re.MULTILINE)
+        # 为标题添加表情
+        def add_title_emoji(match):
+            title = match.group(2)
+            level = len(match.group(1))
+            
+            # 查找标题中是否包含关键词
+            emoji = None
+            for keyword, e in title_emoji_map.items():
+                if keyword in title:
+                    emoji = e
+                    break
+            
+            if emoji:
+                return f"{'#' * level} {emoji} {title}"
+            return match.group(0)
+        
+        content = re.sub(r'^(#{1,6})\s+(.+)$', add_title_emoji, content, flags=re.MULTILINE)
         
         return content
     
@@ -1375,7 +1466,7 @@ class EnhancedArticleForwarder:
             return self._markdown_to_plain_text_v2(markdown_content)
     
     def _html_to_formatted_text_v2(self, html_content):
-        """改进版HTML到格式化文本转换"""
+        """改进版HTML到格式化文本转换 - 适配今日头条编辑器"""
         if not html_content:
             return ""
         
@@ -1399,31 +1490,28 @@ class EnhancedArticleForwarder:
                 if child_text:
                     children_texts.append(child_text)
             
-            content = ' '.join(children_texts) if children_texts else ""
+            content = ' '.join(children_texts) if children_texts else element.get_text().strip()
             
             # 根据标签类型格式化
             if tag_name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
                 level = int(tag_name[1])
                 if content:
-                    if level <= 2:
-                        return f"\n\n{'=' * 60}\n{'  ' * (level-1)}{content}\n{'=' * 60}\n\n"
-                    elif level == 3:
-                        return f"\n\n▶ {content}\n{'─' * min(len(content), 40)}\n\n"
-                    else:
-                        return f"\n\n● {content}\n\n"
-                        
+                    prefix = '#' * level + ' '
+                    return f"\n\n{prefix}{content}\n\n"
+                    
             elif tag_name == 'p':
                 if content:
                     return f"\n\n{content}\n\n"
                     
             elif tag_name in ['strong', 'b']:
-                return f"**{content}**" if content else ""
+                return content  # 依赖编辑器的加粗功能
                 
             elif tag_name in ['em', 'i']:
-                return f"*{content}*" if content else ""
+                return content  # 依赖编辑器的斜体功能
                 
             elif tag_name == 'code':
-                return f"`{content}`" if content else ""
+                if content:
+                    return content  # 依赖编辑器的代码格式功能
             
             elif tag_name == 'pre':
                 if content:
@@ -1434,12 +1522,9 @@ class EnhancedArticleForwarder:
                         classes = ' '.join(code_elem.get('class', []))
                         lang_match = re.search(r'language-(\w+)', classes)
                         if lang_match:
-                            language = lang_match.group(1).upper()
+                            language = lang_match.group(1)
                     
-                    if language:
-                        return f"\n\n💻 **{language} 代码示例：**\n```\n{content}\n```\n\n"
-                    else:
-                        return f"\n\n💻 **代码示例：**\n```\n{content}\n```\n\n"
+                    return f"\n\n{content}\n\n"  # 依赖编辑器的代码块功能
                         
             elif tag_name in ['ul', 'ol']:
                 if children_texts:
@@ -1447,42 +1532,49 @@ class EnhancedArticleForwarder:
                     return f"\n\n{list_content}\n\n"
                     
             elif tag_name == 'li':
-                return f"• {content}" if content else ""
+                parent = element.parent
+                if parent and parent.name == 'ol':
+                    # 有序列表
+                    index = 1
+                    for sibling in element.previous_siblings:
+                        if sibling.name == 'li':
+                            index += 1
+                    return f"{index}. {content}"
+                else:
+                    # 无序列表
+                    return f"• {content}"
             
             elif tag_name == 'blockquote':
                 if content:
-                    lines = content.split('\n')
-                    quoted_lines = [f"> {line.strip()}" for line in lines if line.strip()]
-                    return f"\n\n" + '\n'.join(quoted_lines) + "\n\n"
+                    return f"\n\n{content}\n\n"  # 依赖编辑器的引用功能
                     
             elif tag_name == 'a':
                 href = element.get('href', '')
-                if text_content and href:
-                    return f"[{text_content}]({href})"
+                if content and href:
+                    return content  # 依赖编辑器的链接功能
                 else:
-                    return text_content
+                    return content
             
             elif tag_name == 'img':
                 alt = element.get('alt', '图片')
                 src = element.get('src', '')
                 if src:
-                    return f"\n\n![{alt}]({src})\n\n"
+                    return f"\n\n[图片]\n\n"  # 图片需要手动上传
             
             elif tag_name in ['br']:
                 return "\n"
             
             elif tag_name in ['hr']:
-                return f"\n\n{'─' * 50}\n\n"
+                return "\n\n---\n\n"
             
             elif tag_name in ['div', 'section', 'article']:
-                # 对于容器元素，返回子元素内容
                 if children_texts:
                     return ' '.join(children_texts)
                 else:
-                    return text_content
+                    return content
             
             else:
-                return text_content
+                return content
         
         # 处理整个文档
         result = process_element(soup)
@@ -1490,16 +1582,11 @@ class EnhancedArticleForwarder:
         # 后处理：清理格式
         if result:
             # 清理多余的空行
-            result = re.sub(r'\n{4,}', '\n\n\n', result)
-            result = re.sub(r'\n{3}', '\n\n', result)
-            
-            # 确保代码块前后有空行
-            result = re.sub(r'([^\n])\n(```)', r'\1\n\n\2', result)
-            result = re.sub(r'(```)\n([^\n])', r'\1\n\n\2', result)
-            
-            # 确保标题前后有适当空行
-            result = re.sub(r'([^\n])\n(▶|●|=)', r'\1\n\n\2', result)
-            
+            result = re.sub(r'\n{3,}', '\n\n', result)
+            # 清理多余的空格
+            result = re.sub(r'[ \t]+', ' ', result)
+            # 确保段落间有空行
+            result = re.sub(r'([^\n])\n([^\n])', r'\1\n\n\2', result)
             result = result.strip()
         
         return result
@@ -1597,36 +1684,163 @@ class EnhancedArticleForwarder:
             print(f"❌ 文章发布失败: {e}")
             return False
 
+class AIContentEnhancer:
+    """AI内容增强器 - 使用OpenAI优化文章排版和内容"""
+    
+    def __init__(self, api_key: Optional[str] = None):
+        """初始化AI内容增强器"""
+        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
+        if self.api_key:
+            openai.api_key = self.api_key
+        self.model = "gpt-3.5-turbo-16k"
+    
+    def enhance_content(self, title: str, content: str, tags: List[str]) -> Dict[str, str]:
+        """使用AI增强内容质量"""
+        if not self.api_key:
+            print("⚠️ 未配置OpenAI API Key，跳过AI增强")
+            return {"title": title, "content": content}
+            
+        try:
+            print("🤖 正在使用AI优化内容...")
+            
+            # 构建提示词
+            prompt = f"""作为一个专业的技术文章编辑，请帮我优化以下文章的排版和内容，要求：
+            1. 保持原文的核心内容和技术准确性
+            2. 优化标题使其更吸引人，但不要过分夸张
+            3. 改进文章结构，使其更有逻辑性
+            4. 优化段落分布，使文章更易读
+            5. 适当添加小标题和分隔符
+            6. 在关键点添加合适的emoji
+            7. 确保代码块格式正确
+            8. 适当添加要点符号
+            9. 保持专业性和可读性的平衡
+            10. 输出格式必须是Markdown
+
+            原标题: {title}
+            标签: {', '.join(tags)}
+            
+            原文内容:
+            {content}
+            """
+            
+            # 调用OpenAI API
+            response = openai.ChatCompletion.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "你是一个专业的技术文章编辑，精通技术写作和排版优化。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=4000
+            )
+            
+            # 解析响应
+            enhanced_content = response.choices[0].message.content.strip()
+            
+            # 提取优化后的标题（如果AI生成了新标题）
+            if enhanced_content.startswith('# '):
+                new_title = enhanced_content.split('\n')[0].lstrip('# ').strip()
+                enhanced_content = '\n'.join(enhanced_content.split('\n')[1:]).strip()
+            else:
+                new_title = title
+            
+            print("✨ AI内容优化完成")
+            return {
+                "title": new_title,
+                "content": enhanced_content
+            }
+            
+        except Exception as e:
+            print(f"⚠️ AI增强过程出现错误: {str(e)}")
+            return {"title": title, "content": content}
+    
+    def generate_seo_tags(self, title: str, content: str) -> List[str]:
+        """使用AI生成SEO优化的标签"""
+        if not self.api_key:
+            return []
+            
+        try:
+            print("🏷️ 正在使用AI生成优化标签...")
+            
+            # 构建提示词
+            prompt = f"""作为SEO专家，请为以下技术文章生成3-5个最相关的标签，要求：
+            1. 标签要准确反映文章核心主题
+            2. 包含技术领域和具体技术点
+            3. 考虑搜索热度和相关性
+            4. 不要使用过于宽泛的标签
+            5. 输出格式：每行一个标签，不要包含#号
+
+            文章标题: {title}
+            
+            文章内容:
+            {content[:1000]}  # 只使用前1000个字符
+            """
+            
+            # 调用OpenAI API
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "你是一个SEO专家，精通技术文章标签优化。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=100
+            )
+            
+            # 解析响应
+            tags = [tag.strip() for tag in response.choices[0].message.content.strip().split('\n')]
+            print(f"✨ AI标签生成完成: {tags}")
+            return tags
+            
+        except Exception as e:
+            print(f"⚠️ AI标签生成出现错误: {str(e)}")
+            return []
+
 async def forward_article_from_url(url, account_file="cookies/toutiao_uploader/account.json", save_file=True):
     """从URL转发文章到今日头条"""
-    print("🔗 增强版文章链接转发工具 v2.1")
-    print("=" * 60)
-    
-    # 检查登录状态
-    print("🔐 检查登录状态...")
-    if not await toutiao_setup(account_file):
-        print("❌ 登录状态检查失败，请先登录")
-        print("运行以下命令重新登录:")
-        print("python examples/login_toutiao.py")
-        return False
-    
-    print("✅ 登录状态正常")
-    
-    # 创建转发器
-    forwarder = EnhancedArticleForwarder()
-    
-    # 获取文章内容
-    title, content, tags = await forwarder.fetch_article(url)
-    
-    if not title or not content:
-        print("❌ 无法获取文章内容")
-        return False
-    
-    # 保存文章文件（可选）
-    if save_file:
-        file_path = forwarder.save_article_file(title, content, tags, url)
-    
-    # 确认发布
+    try:
+        # 检查登录状态
+        print("🔐 检查登录状态...")
+        if not await toutiao_setup(account_file):
+            print("❌ 登录状态失效，请重新登录")
+            print("提示: 运行 python examples/login_toutiao.py 重新登录")
+            return None
+        print("✅ 登录状态正常")
+        
+        # 创建转发器
+        forwarder = EnhancedArticleForwarder()
+        
+        # 获取文章内容
+        print(f"🌐 正在获取文章: {url}")
+        title, content, tags = await forwarder.fetch_article(url)
+        
+        if not title or not content:
+            print("❌ 文章获取失败")
+            return None
+            
+        print("✅ 文章获取成功:")
+        print(f"📝 标题: {title}")
+        print(f"📊 内容长度: {len(content)} 字符")
+        print(f"🏷️ 标签: {tags}")
+        
+        # 保存文章（可选）
+        if save_file:
+            file_path = forwarder.save_article_file(title, content, tags, url)
+            if file_path:
+                print(f"💾 文章已保存: {file_path}")
+        
+        return {
+            'title': title,
+            'content': content,
+            'tags': tags
+        }
+        
+    except Exception as e:
+        print(f"❌ 获取文章失败: {str(e)}")
+        return None
+
+async def publish_article_to_toutiao(title, content, tags, url, account_file="cookies/toutiao_uploader/account.json"):
+    """发布文章到今日头条"""
     print(f"\n⚠️ 即将转发文章到今日头条:")
     print(f"📰 标题: {title}")
     print(f"📊 内容长度: {len(content)} 字符")
@@ -1642,11 +1856,14 @@ async def forward_article_from_url(url, account_file="cookies/toutiao_uploader/a
             print("❌ 用户取消转发")
             return False
     except EOFError:
-        # 处理管道输入的情况
         print("\n📋 检测到非交互模式，自动确认转发")
         print("⚠️ 注意: 如遇验证码，请在浏览器中手动输入")
     
+    # 创建转发器
+    forwarder = EnhancedArticleForwarder()
+    
     # 转发到今日头条
+    print("🚀 开始发布到今日头条...")
     success = await forwarder.forward_to_toutiao(title, content, tags, url, account_file)
     
     if success:
@@ -1659,91 +1876,89 @@ async def forward_article_from_url(url, account_file="cookies/toutiao_uploader/a
     
     return success
 
-def main():
+async def main():
     """主函数"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description='增强版文章链接转发到今日头条工具 v3.0 (wechatSync风格)')
-    parser.add_argument('url', help='要转发的文章链接')
-    parser.add_argument('--account', default='cookies/toutiao_uploader/account.json', help='账号cookie文件路径')
-    parser.add_argument('--no-save', action='store_true', help='不保存文章到本地文件')
-    parser.add_argument('--preview', action='store_true', help='仅预览格式化效果，不发布到头条')
-    
+    parser = argparse.ArgumentParser(description='从URL转发文章到今日头条')
+    parser.add_argument('url', help='要转发的文章URL')
+    parser.add_argument('--no-save', action='store_false', dest='save_file',
+                      help='不保存文章到本地')
+    parser.add_argument('--preview', action='store_true',
+                      help='预览模式，只显示文章内容不发布')
+    parser.add_argument('--no-ai', action='store_false', dest='use_ai',
+                      help='不使用AI增强功能')
     args = parser.parse_args()
-    
-    # 检查URL格式
-    if not args.url.startswith(('http://', 'https://')):
-        print("❌ 请提供有效的URL链接")
-        return
-    
-    # 如果是预览模式，不检查账号文件
-    if not args.preview:
-        # 检查账号文件
-        if not os.path.exists(args.account):
-            print(f"❌ 账号文件不存在: {args.account}")
-            print("请先运行登录脚本: python examples/login_toutiao.py")
-            return
-    
-    print(f"🔗 目标链接: {args.url}")
-    if not args.preview:
-        print(f"🔑 账号文件: {args.account}")
-    print(f"💾 保存文件: {'否' if args.no_save else '是'}")
-    print(f"👀 预览模式: {'是' if args.preview else '否'}")
-    print(f"✨ 版本: WechatSync风格排版 v3.0 (增强代码块、标题美化)")
-    
-    # 运行转发或预览
-    if args.preview:
-        asyncio.run(preview_article_format(args.url, not args.no_save))
-    else:
-        asyncio.run(forward_article_from_url(args.url, args.account, not args.no_save))
 
-async def preview_article_format(url, save_file=True):
-    """预览文章格式化效果"""
-    print("👁️ 文章格式化预览模式")
+    # 显示参数信息
+    print(f"🔗 目标链接: {args.url}")
+    print(f"🔑 账号文件: cookies/toutiao_uploader/account.json")
+    print(f"💾 保存文件: {'是' if args.save_file else '否'}")
+    print(f"👀 预览模式: {'是' if args.preview else '否'}")
+    print(f"🤖 AI增强: {'是' if args.use_ai else '否'}")
+    print(f"✨ 版本: WechatSync风格排版 v3.0 (增强代码块、标题美化)")
+    print("🔗 增强版文章链接转发工具 v2.1")
     print("=" * 60)
-    
-    # 创建转发器
-    forwarder = EnhancedArticleForwarder()
-    
-    # 获取文章内容
-    title, content, tags = await forwarder.fetch_article(url)
-    
-    if not title or not content:
-        print("❌ 无法获取文章内容")
-        return False
-    
-    # 保存文章文件（可选）
-    if save_file:
-        file_path = forwarder.save_article_file(title, content, tags, url)
-        print(f"📁 预览文件已保存: {file_path}")
-    
-    # 生成格式化内容预览
-    print(f"\n📝 文章格式化预览:")
-    print(f"📰 标题: {title}")
-    print(f"📊 原始内容长度: {len(content)} 字符")
-    print(f"🏷️ 标签: {tags}")
-    print("=" * 60)
-    
-    # 增强内容格式并显示
-    enhanced_content = forwarder._enhance_content_format(title, content, url, use_rich_text=True)
-    
-    print("\n🎨 格式化后内容预览:")
-    print("─" * 60)
-    print(enhanced_content[:1000] + "..." if len(enhanced_content) > 1000 else enhanced_content)
-    if len(enhanced_content) > 1000:
-        print(f"\n... (内容太长，仅显示前1000字符，完整内容共{len(enhanced_content)}字符)")
-    print("─" * 60)
-    
-    print("\n✨ 格式化特性说明:")
-    print("  📖 标题: 使用emoji和分隔线美化")
-    print("  💻 代码块: 带边框和语言标识")
-    print("  🔹 段落: 适当间距和层级结构")
-    print("  📝 列表: 使用美观的项目符号")
-    print("  💡 引用: 带竖线和emoji装饰")
-    print("  🔗 链接: 保留原始链接格式")
-    
-    print(f"\n🎯 预览完成！如需发布到头条，请移除 --preview 参数")
-    return True
+
+    try:
+        # 获取文章内容
+        article = await forward_article_from_url(
+            args.url,
+            save_file=args.save_file
+        )
+        
+        if not article:
+            print("❌ 文章获取失败")
+            return
+
+        article_title = article.get('title', '')
+        article_content = article.get('content', '')
+        article_tags = article.get('tags', [])
+        
+        # 使用AI增强内容
+        if args.use_ai:
+            try:
+                from conf import OPENAI_API_KEY
+                ai_enhancer = AIContentEnhancer(api_key=OPENAI_API_KEY)
+                
+                # AI增强内容
+                enhanced = ai_enhancer.enhance_content(
+                    title=article_title,
+                    content=article_content,
+                    tags=article_tags
+                )
+                article_title = enhanced["title"]
+                article_content = enhanced["content"]
+                
+                # 生成优化的标签
+                ai_tags = ai_enhancer.generate_seo_tags(article_title, article_content)
+                if ai_tags:
+                    article_tags.extend(ai_tags)
+                    article_tags = list(set(article_tags))  # 去重
+            except ImportError:
+                print("⚠️ 未找到OpenAI API配置，跳过AI增强")
+            except Exception as e:
+                print(f"⚠️ AI增强过程出现错误: {str(e)}")
+
+        if args.preview:
+            print("\n📝 预览文章内容:")
+            print("=" * 60)
+            print(f"标题: {article_title}")
+            print(f"标签: {article_tags}")
+            print("-" * 60)
+            print(article_content)
+            print("=" * 60)
+            return
+
+        # 发布文章
+        await publish_article_to_toutiao(
+            title=article_title,
+            content=article_content,
+            tags=article_tags,
+            url=args.url
+        )
+
+    except Exception as e:
+        print(f"❌ 发生错误: {str(e)}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
-    main() 
+    asyncio.run(main()) 
