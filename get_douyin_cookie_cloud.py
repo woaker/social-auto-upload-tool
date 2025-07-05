@@ -16,6 +16,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import undetected_chromedriver as uc
+import base64
 
 def get_douyin_cookie_cloud():
     """使用selenium获取抖音cookie"""
@@ -189,7 +190,7 @@ def get_douyin_cookie_cloud():
                 print(f"❌ 无法切换到扫码登录: {e}")
         
         if qr_img:
-            # 获取登录链接
+            # 获取登录二维码
             try:
                 # 查找二维码元素
                 qr_element = driver.find_element(By.CSS_SELECTOR, "img[class*='qrcode']")
@@ -197,22 +198,43 @@ def get_douyin_cookie_cloud():
                     # 获取二维码的src属性
                     qr_src = qr_element.get_attribute("src")
                     if qr_src and qr_src.startswith("data:image/png;base64,"):
-                        # 等待一下确保页面加载完成
-                        time.sleep(2)
-                        # 获取当前URL
-                        current_url = driver.current_url
-                        # 构造登录链接
-                        login_url = current_url.replace("creator.douyin.com", "creator-micro.douyin.com") + "?source=qrcode"
+                        # 创建小型二维码
+                        import qrcode
+                        from urllib.parse import urlparse, parse_qs
+                        
+                        # 解析二维码数据
+                        qr_data = qr_src.replace("data:image/png;base64,", "")
+                        qr_bytes = base64.b64decode(qr_data)
+                        
+                        # 创建新的二维码
+                        qr = qrcode.QRCode(
+                            version=1,
+                            error_correction=qrcode.constants.ERROR_CORRECT_L,
+                            box_size=1,
+                            border=1
+                        )
+                        qr.add_data(qr_bytes)
+                        qr.make(fit=True)
                         
                         print("\n✨ 请按以下步骤完成登录：")
                         print("1. 打开抖音APP")
                         print('2. 点击"我"')
                         print('3. 点击右上角"扫一扫"')
-                        print("4. 扫描电脑屏幕上的二维码")
-                        print("\n📱 或者使用以下链接登录：")
-                        print(login_url)
+                        print("4. 扫描下面的二维码：\n")
+                        
+                        # 使用简单字符显示二维码
+                        matrix = qr.get_matrix()
+                        for row in matrix:
+                            line = ""
+                            for cell in row:
+                                if cell:
+                                    line += "█"
+                                else:
+                                    line += " "
+                            print(line)
+                        
                         print("\n⏳ 等待登录成功...")
-                        print("   请在手机上完成授权")
+                        print("   请使用抖音APP扫描二维码完成登录")
                     else:
                         print("❌ 无法获取有效的二维码，请检查网页是否正常加载")
                 else:
