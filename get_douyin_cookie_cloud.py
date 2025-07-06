@@ -21,6 +21,7 @@ from urllib.parse import urlparse, parse_qs
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 import threading
 import socket
+from PIL import Image
 
 def get_ip():
     # 获取服务器IP地址
@@ -229,13 +230,28 @@ def get_douyin_cookie_cloud():
                         
                         # 创建新的二维码
                         qr = qrcode.QRCode(
-                            version=1,
+                            version=None,  # 自动选择最小版本
                             error_correction=qrcode.constants.ERROR_CORRECT_L,
-                            box_size=2,  # 增大一点以确保清晰度
+                            box_size=1,
                             border=1
                         )
                         qr.add_data(qr_bytes)
                         qr.make(fit=True)
+                        
+                        # 获取二维码矩阵
+                        matrix = qr.get_matrix()
+                        
+                        # 计算原始尺寸
+                        original_width = len(matrix[0])
+                        original_height = len(matrix)
+                        
+                        # 目标尺寸（终端中的字符数）
+                        target_width = 40  # 二维码的目标宽度
+                        target_height = 40  # 二维码的目标高度
+                        
+                        # 计算缩放因子
+                        scale_x = target_width / original_width
+                        scale_y = target_height / original_height
                         
                         print("\n✨ 请按以下步骤完成登录：")
                         print("1. 打开抖音APP")
@@ -243,17 +259,22 @@ def get_douyin_cookie_cloud():
                         print('3. 点击右上角"扫一扫"')
                         print("4. 扫描下面的二维码：\n")
                         
-                        # 使用方块字符显示二维码
-                        matrix = qr.get_matrix()
-                        for row in matrix:
+                        # 绘制缩放后的二维码
+                        for y in range(target_height):
                             line = ""
-                            for cell in row:
-                                if cell:
-                                    line += "█"  # 使用实心方块
+                            for x in range(target_width):
+                                # 映射回原始坐标
+                                orig_x = int(x / scale_x)
+                                orig_y = int(y / scale_y)
+                                # 确保坐标在有效范围内
+                                orig_x = min(orig_x, original_width - 1)
+                                orig_y = min(orig_y, original_height - 1)
+                                # 根据原始矩阵的值决定是否填充
+                                if matrix[orig_y][orig_x]:
+                                    line += "█"
                                 else:
-                                    line += " "  # 使用空格
-                            # 重复每行以使二维码更大更清晰
-                            print(line + line)
+                                    line += " "
+                            print(line)
                         
                         print("\n⏳ 等待登录成功...")
                         print("   请使用抖音APP扫描二维码完成登录")
