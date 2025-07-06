@@ -600,9 +600,17 @@ def load_cookies():
             if os.path.exists(cookie_file):
                 print(f"✅ 找到cookie文件: {cookie_file}")
                 with open(cookie_file, 'r') as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    # 处理不同的cookie格式
+                    if isinstance(data, dict) and 'cookies' in data:
+                        return data['cookies']  # 返回cookies数组
+                    elif isinstance(data, list):
+                        return data  # 直接返回cookie数组
+                    else:
+                        print(f"❌ Cookie文件 {cookie_file} 格式不正确")
+                        continue
                     
-        print("❌ 未找到任何cookie文件")
+        print("❌ 未找到任何有效的cookie文件")
     except Exception as e:
         print(f"❌ 加载cookies失败: {str(e)}")
     return None
@@ -610,13 +618,18 @@ def load_cookies():
 def save_cookies(cookies):
     """保存cookies"""
     try:
+        cookie_data = {
+            'cookies': cookies,
+            'timestamp': time.time()
+        }
+        
         # 优先保存到标准位置
         cookie_dir = os.path.join('cookies', 'douyin_uploader')
         os.makedirs(cookie_dir, exist_ok=True)
         cookie_file = os.path.join(cookie_dir, 'douyin_cookies.json')
         
         with open(cookie_file, 'w') as f:
-            json.dump(cookies, f)
+            json.dump(cookie_data, f, indent=2)
         print(f"✅ cookies已保存到: {cookie_file}")
         
         # 同时保存一份到cookiesFile目录
@@ -625,7 +638,7 @@ def save_cookies(cookies):
         alt_cookie_file = os.path.join(alt_cookie_dir, 'douyin_account.json')
         
         with open(alt_cookie_file, 'w') as f:
-            json.dump(cookies, f)
+            json.dump(cookie_data, f, indent=2)
         print(f"✅ cookies已备份到: {alt_cookie_file}")
         
     except Exception as e:
