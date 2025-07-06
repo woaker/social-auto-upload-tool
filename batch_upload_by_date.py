@@ -562,161 +562,99 @@ class BatchUploader:
         print(f"\n🎉 批量上传完成！")
 
 
-def upload_video(video_file, platform):
-    try:
-        with sync_playwright() as p:
-            # 配置浏览器选项
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--single-process',
-                    '--disable-extensions',
-                    '--disable-features=VizDisplayCompositor',
-                    '--disable-software-rasterizer',
-                ]
-            )
-            
-            context = browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            )
-            
-            page = context.new_page()
-            
-            # 设置超时时间
-            page.set_default_timeout(60000)  # 60秒超时
-            
-            try:
-                # 执行上传操作
-                if platform == 'douyin':
-                    result = upload_to_douyin(page, video_file)
-                # ... 其他平台的处理 ...
-                
-                return result
-            except Exception as e:
-                print(f"❌ {os.path.basename(video_file)} 上传失败: {str(e)}")
-                return False
-            finally:
-                try:
-                    context.close()
-                    browser.close()
-                except:
-                    pass
-    except Exception as e:
-        print(f"❌ 浏览器启动失败: {str(e)}")
-        return False
+def upload_douyin_videos(video_files, schedule_time=None):
+    print("🎵 开始上传到抖音...")
+    if schedule_time:
+        print(f"⏰ 定时发布: {schedule_time}")
+    else:
+        print("📤 立即发布模式")
 
+    success_count = 0
+    for video_file in video_files:
+        if upload_to_douyin(video_file):
+            success_count += 1
+
+    print(f"\n✅ 上传完成: {success_count}/{len(video_files)} 个视频成功")
+    return success_count > 0
+
+def check_account_files():
+    """检查账号配置文件是否存在"""
+    account_files = {
+        'douyin': 'douyin_account.json',
+        'bilibili': '32b2189f-8ea6-41b8-b48d-395894ae01ed.json',
+        'kuaishou': 'a7b72f5a-4689-11f0-87bd-82265ec8d59d.json',
+        'xiaohongshu': 'ebd39c7e-4688-11f0-87bd-82265ec8d59d.json',
+        'baijiahao': 'ee7a766a-d8b1-4d48-a9d9-4ce6e154ad8a.json'
+    }
+    
+    for platform, file in account_files.items():
+        if os.path.exists(file):
+            print(f"✅ {platform.title()} 匹配到账号文件: {file}")
+        else:
+            print(f"❌ {platform.title()} 未找到账号文件: {file}")
 
 def main():
-    parser = argparse.ArgumentParser(description='按日期目录批量上传视频')
-    parser.add_argument('--platform', '-p', 
-                       choices=['douyin', 'kuaishou', 'xiaohongshu', 'baijiahao', 'bilibili', 'tencent', 'tiktok', 'all'],
-                       default='all',
-                       help='目标平台 (默认: all)')
-    parser.add_argument('--date', '-d',
-                       default=datetime.now().strftime('%Y-%m-%d'),
-                       help='日期目录 (格式: YYYY-MM-DD, 默认: 今天)')
-    
-    # 定时发布相关参数
-    parser.add_argument('--schedule', '--enable-schedule',
-                       action='store_true',
-                       default=True,
-                       help='启用定时发布 (默认: 启用)')
-    parser.add_argument('--no-schedule', '--immediate',
-                       action='store_true',
-                       help='立即发布，禁用定时发布')
-    parser.add_argument('--videos-per-day', '--vpd',
-                       type=int,
-                       default=1,
-                       help='每天发布视频数量 (默认: 1)')
-    parser.add_argument('--daily-times', '--times',
-                       type=str,
-                       default='',
-                       help='每天发布时间点，用逗号分隔，格式HH:MM (如: 10:00,14:30,19:00)。为空则立即发布')
-    parser.add_argument('--start-days', '--delay',
-                       type=int,
-                       default=0,
-                       choices=[0, 1, 2, 3, 4, 5, 6],
-                       help='延迟开始天数 (默认: 0明天, 1后天, 2大后天...)')
-    
+    parser = argparse.ArgumentParser(description='批量上传视频到各个平台')
+    parser.add_argument('--platform', type=str, required=True, help='目标平台 (douyin/bilibili/kuaishou/xiaohongshu/baijiahao)')
+    parser.add_argument('--date', type=str, required=True, help='视频所在日期目录，格式：YYYY-MM-DD')
+    parser.add_argument('--no-schedule', action='store_true', help='是否立即发布，默认为定时发布')
     args = parser.parse_args()
-    
-    # 处理定时发布设置
-    # 如果daily_times为空，则自动设置为立即发布
-    if not args.daily_times.strip():
-        enable_schedule = False
-        daily_times = []
-        print("🎯 检测到发布时间为空，自动设置为立即发布模式")
-    else:
-        enable_schedule = args.schedule and not args.no_schedule
-        
-        # 解析发布时间点，支持"HH:MM"格式
-        try:
-            time_strings = [time.strip() for time in args.daily_times.split(',')]
-            daily_times = []
-            
-            for time_str in time_strings:
-                if ':' in time_str:
-                    # 解析"HH:MM"格式
-                    hour_str, minute_str = time_str.split(':')
-                    hour = int(hour_str)
-                    minute = int(minute_str)
-                    
-                    # 验证时间范围
-                    if not (0 <= hour <= 23):
-                        print(f"❌ 无效的小时: {hour}，小时必须在0-23之间")
-                        return
-                    if not (0 <= minute <= 59):
-                        print(f"❌ 无效的分钟: {minute}，分钟必须在0-59之间")
-                        return
-                    
-                    daily_times.append(time_str)
-                else:
-                    # 兼容原来的小时数字格式
-                    hour = int(time_str)
-                    if not (0 <= hour <= 23):
-                        print(f"❌ 无效的时间点: {hour}，时间必须在0-23之间")
-                        return
-                    daily_times.append(str(hour))
-                    
-        except ValueError as e:
-            print(f"❌ 无效的时间格式: {args.daily_times}")
-            print(f"   请使用HH:MM格式，如: '10:00,14:30,19:00' 或数字格式 '10,14,19'")
-            return
-        
-        # 验证每天发布数量与时间点数量匹配
-        if args.videos_per_day > len(daily_times):
-            print(f"❌ 每天发布数量({args.videos_per_day})不能超过时间点数量({len(daily_times)})")
-            print(f"   当前时间点: {daily_times}")
-            return
-    
-    # 显示配置信息
-    print(f"🎯 批量上传配置:")
+
+    # 验证日期格式
+    try:
+        datetime.strptime(args.date, '%Y-%m-%d')
+    except ValueError:
+        print("❌ 日期格式错误，请使用YYYY-MM-DD格式")
+        return
+
+    # 设置发布时间
+    schedule_time = None if args.no_schedule else f"{args.date} 12:00:00"
+
+    print("🎯 批量上传配置:")
     print(f"   平台: {args.platform}")
     print(f"   日期: {args.date}")
-    if enable_schedule:
-        print(f"   定时发布: 启用")
-        print(f"   每天发布数量: {args.videos_per_day}")
-        print(f"   发布时间: {daily_times}")
-        print(f"   开始天数: {args.start_days} ({'明天' if args.start_days == 0 else '后天' if args.start_days == 1 else f'{args.start_days+1}天后'})")
-    else:
-        print(f"   发布方式: 立即发布")
+    print(f"   发布方式: {'立即发布' if args.no_schedule else '定时发布'}")
     print()
-    
-    uploader = BatchUploader(
-        date_str=args.date,
-        videos_per_day=args.videos_per_day,
-        daily_times=daily_times,
-        start_days=args.start_days,
-        enable_schedule=enable_schedule
-    )
-    asyncio.run(uploader.run(args.platform))
+
+    # 检查账号配置
+    check_account_files()
+
+    # 获取视频文件列表
+    video_dir = os.path.join("videoFile", args.date)
+    if not os.path.exists(video_dir):
+        print(f"❌ 视频目录不存在: {video_dir}")
+        return
+
+    video_files = []
+    for file in os.listdir(video_dir):
+        if file.endswith(('.mp4', '.MP4', '.mov', '.MOV')):
+            video_files.append(os.path.join(video_dir, file))
+
+    if not video_files:
+        print(f"❌ 未找到视频文件")
+        return
+
+    print("🎯 批量上传脚本启动")
+    print(f"📅 目标日期: {args.date}")
+    print(f"🎯 目标平台: {args.platform}")
+    print(f"📁 视频目录: {os.path.abspath(video_dir)}")
+    print(f"📤 发布方式: {'立即发布' if args.no_schedule else '定时发布'}")
+    print(f"📁 找到 {len(video_files)} 个视频文件:")
+    for i, file in enumerate(video_files, 1):
+        print(f"  {i}. {os.path.basename(file)}")
+    print()
+
+    print("=" * 50)
+    print(f"开始批量上传 {len(video_files)} 个视频")
+    print("=" * 50)
+
+    # 根据平台调用不同的上传函数
+    if args.platform == 'douyin':
+        upload_douyin_videos(video_files, schedule_time)
+    else:
+        print(f"❌ 不支持的平台: {args.platform}")
+
+    print("\n🎉 批量上传完成！")
 
 
 if __name__ == '__main__':

@@ -556,44 +556,11 @@ class DouYinVideo(object):
             await self.upload(playwright)
 
 
-def upload_to_douyin(page, video_file):
-    try:
-        # 登录抖音创作者平台
-        page.goto('https://creator.douyin.com/')
-        
-        # 等待登录完成
-        page.wait_for_selector('.upload-btn', timeout=30000)
-        
-        # 点击上传按钮
-        page.click('.upload-btn')
-        
-        # 等待上传对话框出现
-        upload_input = page.wait_for_selector('input[type="file"]', timeout=30000)
-        
-        # 上传视频
-        upload_input.set_input_files(video_file)
-        
-        # 等待上传完成
-        page.wait_for_selector('.upload-success-icon', timeout=300000)  # 5分钟超时
-        
-        # 点击发布按钮
-        publish_button = page.wait_for_selector('button:has-text("发布")', timeout=30000)
-        publish_button.click()
-        
-        # 等待发布完成
-        page.wait_for_selector('.publish-success', timeout=60000)
-        
-        print(f"✅ {os.path.basename(video_file)} 上传成功！")
-        return True
-        
-    except Exception as e:
-        print(f"❌ {os.path.basename(video_file)} 上传失败: {str(e)}")
-        return False
-
-def douyin_setup():
+def upload_to_douyin(video_file):
+    """上传视频到抖音"""
     try:
         with sync_playwright() as p:
-            # 使用 Firefox 而不是 Chrome
+            # 启动 Firefox
             browser = p.firefox.launch(
                 headless=True,
                 args=[
@@ -610,16 +577,37 @@ def douyin_setup():
             page = context.new_page()
             page.set_default_timeout(60000)  # 60秒超时
             
-            # 执行登录操作
-            page.goto('https://creator.douyin.com/')
-            
-            # 等待登录完成或超时
             try:
+                # 打开抖音创作者平台
+                page.goto('https://creator.douyin.com/')
+                
+                # 等待登录完成
                 page.wait_for_selector('.upload-btn', timeout=300000)  # 5分钟超时
-                print("✅ 抖音登录成功！")
+                
+                # 点击上传按钮
+                page.click('.upload-btn')
+                
+                # 等待上传对话框出现
+                upload_input = page.wait_for_selector('input[type="file"]', timeout=30000)
+                
+                # 上传视频
+                upload_input.set_input_files(video_file)
+                
+                # 等待上传完成
+                page.wait_for_selector('.upload-success-icon', timeout=300000)  # 5分钟超时
+                
+                # 点击发布按钮
+                publish_button = page.wait_for_selector('button:has-text("发布")', timeout=30000)
+                publish_button.click()
+                
+                # 等待发布完成
+                page.wait_for_selector('.publish-success', timeout=60000)
+                
+                print(f"✅ {os.path.basename(video_file)} 上传成功！")
                 return True
-            except:
-                print("❌ 抖音登录超时")
+                
+            except Exception as e:
+                print(f"❌ {os.path.basename(video_file)} 上传失败: {str(e)}")
                 return False
             finally:
                 try:
