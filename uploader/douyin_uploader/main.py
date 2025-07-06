@@ -1058,34 +1058,78 @@ def handle_publish(page):
         print("✅ 检测到发布按钮")
         
         # 确保页面稳定
-        time.sleep(2)
+        time.sleep(3)
+        
+        # 记录发布前的URL
+        pre_publish_url = page.url
         
         # 点击发布按钮
         publish_button.click()
         print("✅ 点击发布按钮成功")
         
-        # 等待发布完成的标志
-        success_indicators = [
-            'text=发布成功',
-            'text=已发布',
-            'text=视频已发布',
-            '[class*="success"]',
-            '[class*="published"]'
-        ]
+        # 等待页面发生变化
+        try:
+            page.wait_for_url(lambda url: url != pre_publish_url, timeout=30000)
+            print("✅ 检测到页面跳转")
+        except:
+            print("⚠️ 页面未发生跳转")
         
-        # 等待任意成功标志出现
+        # 多轮检查发布状态
+        max_checks = 3
+        check_interval = 5
         success = False
-        for indicator in success_indicators:
+        
+        for check_round in range(max_checks):
+            print(f"\n🔄 第 {check_round + 1} 轮状态检查:")
+            
+            # 1. 检查URL
+            current_url = page.url
+            if any(x in current_url for x in ['publish/success', 'video/manage', 'creator/content']):
+                print("✅ URL显示发布成功")
+                success = True
+                break
+            
+            # 2. 检查成功提示
+            success_indicators = [
+                'text=发布成功',
+                'text=已发布',
+                'text=视频已发布',
+                '[class*="success"]',
+                '[class*="published"]',
+                'text=视频正在处理',  # 有些情况下会显示这个
+                'text=视频已上传成功'
+            ]
+            
+            for indicator in success_indicators:
+                try:
+                    if page.query_selector(indicator):
+                        print(f"✅ 检测到成功标志: {indicator}")
+                        success = True
+                        break
+                except:
+                    continue
+            
+            if success:
+                break
+            
+            # 3. 检查页面状态
             try:
-                if page.wait_for_selector(indicator, timeout=30000):
-                    print(f"✅ 检测到发布成功标志: {indicator}")
+                # 检查是否在视频管理页面
+                if page.query_selector('text=视频管理') or page.query_selector('text=内容管理'):
+                    print("✅ 已进入视频管理页面")
+                    success = True
+                    break
+                    
+                # 检查是否有最新发布的视频
+                recent_videos = page.query_selector_all('[class*="video-item"], [class*="content-item"]')
+                if recent_videos:
+                    print("✅ 检测到视频列表")
                     success = True
                     break
             except:
-                continue
-                
-        if not success:
-            # 检查是否存在错误提示
+                pass
+            
+            # 4. 检查错误提示
             error_indicators = [
                 'text=发布失败',
                 'text=网络错误',
@@ -1094,48 +1138,66 @@ def handle_publish(page):
                 '[class*="fail"]'
             ]
             
+            has_error = False
             for indicator in error_indicators:
                 try:
                     error_el = page.query_selector(indicator)
                     if error_el:
                         error_text = error_el.text_content()
                         print(f"❌ 发布失败: {error_text}")
-                        return False
+                        has_error = True
+                        break
                 except:
                     continue
             
-            print("⚠️ 未检测到明确的发布结果，建议手动确认")
+            if has_error:
+                return False
             
-            # 保存发布状态截图
-            try:
-                page.screenshot(path='douyin_publish_status.png')
-                print("📸 已保存发布状态截图")
-            except:
-                pass
+            # 如果还没有明确结果，等待后继续检查
+            if not success and check_round < max_checks - 1:
+                print(f"⏳ 等待 {check_interval} 秒后进行下一轮检查...")
+                time.sleep(check_interval)
                 
-            return None  # 返回None表示状态未知
-            
-        # 额外等待确保发布完成
-        time.sleep(5)
+                # 尝试刷新页面
+                try:
+                    page.reload(timeout=30000, wait_until='domcontentloaded')
+                    print("🔄 页面已刷新")
+                except:
+                    print("⚠️ 页面刷新失败")
         
-        # 检查URL是否包含作品ID
+        if not success:
+            print("\n⚠️ 未检测到明确的发布结果，保存当前状态...")
+            
+            # 保存发布状态信息
+            try:
+                # 截图
+                page.screenshot(path='douyin_publish_status.png')
+                print("📸 已保存状态截图")
+                
+                # 保存页面内容
+                with open('douyin_publish_status.html', 'w', encoding='utf-8') as f:
+                    f.write(page.content())
+                print("📄 已保存页面内容")
+                
+                # 保存当前URL
+                print(f"🔗 当前URL: {page.url}")
+            except Exception as e:
+                print(f"⚠️ 保存状态信息时出错: {str(e)}")
+            
+            return None
+        
+        # 发布成功后，尝试获取视频ID
         try:
-            current_url = page.url
-            if 'publish/success' in current_url or 'video/manage' in current_url:
-                print("✅ 已跳转到发布成功页面")
-                
-                # 尝试获取视频ID
-                video_id = None
-                match = re.search(r'video/(\d+)', current_url)
-                if match:
-                    video_id = match.group(1)
-                    print(f"📝 视频ID: {video_id}")
-                
-                return True
+            video_id = None
+            match = re.search(r'video/(\d+)', page.url)
+            if match:
+                video_id = match.group(1)
+                print(f"📝 视频ID: {video_id}")
         except:
             pass
-            
-        return success
+        
+        print("\n✅ 发布流程完成")
+        return True
         
     except Exception as e:
         print(f"❌ 发布过程出错: {str(e)}")
