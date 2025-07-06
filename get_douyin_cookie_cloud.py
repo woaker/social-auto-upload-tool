@@ -88,11 +88,27 @@ def get_douyin_cookie_cloud():
     options.add_argument('--disable-backing-store-limit')
     options.add_argument('--memory-pressure-off')
     
+    # 稳定性增强
+    options.add_argument('--disable-background-timer-throttling')
+    options.add_argument('--disable-backgrounding-occluded-windows')
+    options.add_argument('--disable-breakpad')
+    options.add_argument('--disable-component-extensions-with-background-pages')
+    options.add_argument('--disable-features=TranslateUI')
+    options.add_argument('--disable-ipc-flooding-protection')
+    options.add_argument('--disable-renderer-backgrounding')
+    options.add_argument('--enable-automation')
+    options.add_argument('--ignore-certificate-errors')
+    options.add_argument('--remote-debugging-port=9222')
+    
     # 设置二进制文件路径
     options.binary_location = "/usr/bin/google-chrome-stable"
     
     driver = None
+    server = None  # 初始化server变量
     try:
+        # 启动HTTP服务器
+        server = start_http_server()  # 保存server对象的引用
+        
         print("🚀 启动浏览器...")
         print("Chrome路径:", options.binary_location)
         print("DISPLAY:", os.environ.get("DISPLAY"))
@@ -372,8 +388,12 @@ def get_douyin_cookie_cloud():
         except:
             pass
         # 关闭HTTP服务器
-        server.shutdown()
-        server.server_close()
+        if server:  # 只在server存在时才尝试关闭
+            try:
+                server.shutdown()
+                server.server_close()
+            except Exception as e:
+                print(f"关闭HTTP服务器时出错: {e}")
 
 if __name__ == '__main__':
     print("🤖 抖音Cookie获取工具 (云服务器版)")
