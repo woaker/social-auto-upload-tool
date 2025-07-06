@@ -228,7 +228,7 @@ def get_douyin_cookie_cloud():
                         qr_data = qr_src.replace("data:image/png;base64,", "")
                         qr_bytes = base64.b64decode(qr_data)
                         
-                        # 创建新的二维码
+                        # 创建二维码实例
                         qr = qrcode.QRCode(
                             version=None,  # 自动选择最小版本
                             error_correction=qrcode.constants.ERROR_CORRECT_L,
@@ -245,9 +245,9 @@ def get_douyin_cookie_cloud():
                         original_width = len(matrix[0])
                         original_height = len(matrix)
                         
-                        # 目标尺寸（终端中的字符数）
-                        target_width = 40  # 二维码的目标宽度
-                        target_height = 40  # 二维码的目标高度
+                        # 目标尺寸（终端中的字符数）- 调小尺寸以适应终端
+                        target_width = 25  # 减小宽度
+                        target_height = 25  # 减小高度
                         
                         # 计算缩放因子
                         scale_x = target_width / original_width
@@ -259,7 +259,7 @@ def get_douyin_cookie_cloud():
                         print('3. 点击右上角"扫一扫"')
                         print("4. 扫描下面的二维码：\n")
                         
-                        # 绘制缩放后的二维码
+                        # 绘制缩放后的二维码，确保每行结束添加换行符
                         for y in range(target_height):
                             line = ""
                             for x in range(target_width):
@@ -274,7 +274,7 @@ def get_douyin_cookie_cloud():
                                     line += "█"
                                 else:
                                     line += " "
-                            print(line)
+                            print(line + "\n")  # 添加额外的换行使二维码更容易扫描
                         
                         print("\n⏳ 等待登录成功...")
                         print("   请使用抖音APP扫描二维码完成登录")
