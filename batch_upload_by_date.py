@@ -18,6 +18,7 @@ from datetime import datetime
 import os
 import sys
 import json
+from playwright.sync_api import sync_playwright
 
 # 添加当前目录到Python路径，确保可以导入本地的conf模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -26,7 +27,7 @@ from config import BASE_DIR
 from utils.files_times import get_title_and_hashtags, generate_schedule_time_next_day
 
 # 导入各平台的上传模块
-from uploader.douyin_uploader.main import douyin_setup, DouYinVideo
+from uploader.douyin_uploader.main import douyin_setup, DouYinVideo, upload_to_douyin
 from uploader.bilibili_uploader.main import read_cookie_json_file, extract_keys_from_json, random_emoji, BilibiliUploader
 from utils.video_converter import VideoConverter
 from uploader.ks_uploader.main import KSVideo, ks_setup
@@ -559,6 +560,57 @@ class BatchUploader:
             await self.upload_to_platform(platform, video_files)
         
         print(f"\n🎉 批量上传完成！")
+
+
+def upload_video(video_file, platform):
+    try:
+        with sync_playwright() as p:
+            # 配置浏览器选项
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--single-process',
+                    '--disable-extensions',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-software-rasterizer',
+                ]
+            )
+            
+            context = browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            )
+            
+            page = context.new_page()
+            
+            # 设置超时时间
+            page.set_default_timeout(60000)  # 60秒超时
+            
+            try:
+                # 执行上传操作
+                if platform == 'douyin':
+                    result = upload_to_douyin(page, video_file)
+                # ... 其他平台的处理 ...
+                
+                return result
+            except Exception as e:
+                print(f"❌ {os.path.basename(video_file)} 上传失败: {str(e)}")
+                return False
+            finally:
+                try:
+                    context.close()
+                    browser.close()
+                except:
+                    pass
+    except Exception as e:
+        print(f"❌ 浏览器启动失败: {str(e)}")
+        return False
 
 
 def main():

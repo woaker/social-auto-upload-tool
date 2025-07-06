@@ -4,6 +4,8 @@ from datetime import datetime
 from playwright.async_api import Playwright, async_playwright, Page
 import os
 import asyncio
+import time
+from playwright.sync_api import sync_playwright
 
 from config import LOCAL_CHROME_PATH
 from utils.base_social_media import set_init_script
@@ -552,5 +554,89 @@ class DouYinVideo(object):
     async def main(self):
         async with async_playwright() as playwright:
             await self.upload(playwright)
+
+
+def upload_to_douyin(page, video_file):
+    try:
+        # 登录抖音创作者平台
+        page.goto('https://creator.douyin.com/')
+        
+        # 等待登录完成
+        page.wait_for_selector('.upload-btn', timeout=30000)
+        
+        # 点击上传按钮
+        page.click('.upload-btn')
+        
+        # 等待上传对话框出现
+        upload_input = page.wait_for_selector('input[type="file"]', timeout=30000)
+        
+        # 上传视频
+        upload_input.set_input_files(video_file)
+        
+        # 等待上传完成
+        page.wait_for_selector('.upload-success-icon', timeout=300000)  # 5分钟超时
+        
+        # 点击发布按钮
+        publish_button = page.wait_for_selector('button:has-text("发布")', timeout=30000)
+        publish_button.click()
+        
+        # 等待发布完成
+        page.wait_for_selector('.publish-success', timeout=60000)
+        
+        print(f"✅ {os.path.basename(video_file)} 上传成功！")
+        return True
+        
+    except Exception as e:
+        print(f"❌ {os.path.basename(video_file)} 上传失败: {str(e)}")
+        return False
+
+def douyin_setup():
+    try:
+        with sync_playwright() as p:
+            # 配置浏览器选项
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--single-process',
+                    '--disable-extensions',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-software-rasterizer',
+                ]
+            )
+            
+            context = browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            )
+            
+            page = context.new_page()
+            page.set_default_timeout(60000)  # 60秒超时
+            
+            # 执行登录操作
+            page.goto('https://creator.douyin.com/')
+            
+            # 等待登录完成或超时
+            try:
+                page.wait_for_selector('.upload-btn', timeout=300000)  # 5分钟超时
+                print("✅ 抖音登录成功！")
+                return True
+            except:
+                print("❌ 抖音登录超时")
+                return False
+            finally:
+                try:
+                    context.close()
+                    browser.close()
+                except:
+                    pass
+    except Exception as e:
+        print(f"❌ 浏览器启动失败: {str(e)}")
+        return False
 
 
