@@ -739,13 +739,27 @@ def upload_to_douyin(video_file):
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
                     '--disable-gpu',
-                    '--disable-web-security'
+                    '--disable-web-security',
+                    '--disable-features=IsolateOrigins,site-per-process', # 禁用站点隔离
+                    '--disable-site-isolation-trials',
+                    '--ignore-certificate-errors',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-setuid-sandbox',
+                    '--no-first-run',
+                    '--no-default-browser-check',
+                    '--no-zygote',
+                    '--disable-accelerated-2d-canvas',
+                    '--disable-accelerated-video-decode',
+                    '--disable-gpu-sandbox',
+                    '--disable-software-rasterizer',
                 ]
             )
             
             context = browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                ignore_https_errors=True,
+                bypass_csp=True
             )
             
             # 加载cookies
@@ -754,12 +768,80 @@ def upload_to_douyin(video_file):
                 context.add_cookies(cookies)
             
             page = context.new_page()
-            page.set_default_timeout(60000)
+            page.set_default_timeout(120000)  # 增加默认超时时间到120秒
             
             try:
                 print("🌐 访问抖音创作者平台...")
-                # 访问创作者平台
-                page.goto('https://creator.douyin.com/creator-micro/content/upload')
+                
+                # 添加重试机制
+                max_retries = 3
+                retry_count = 0
+                last_error = None
+                
+                while retry_count < max_retries:
+                    try:
+                        # 先访问主页，等待较短时间
+                        print(f"尝试访问主页 (尝试 {retry_count + 1}/{max_retries})...")
+                        page.goto('https://creator.douyin.com/', 
+                                wait_until='domcontentloaded',
+                                timeout=30000)
+                        
+                        # 等待一下让页面稳定
+                        page.wait_for_timeout(2000)
+                        
+                        # 然后访问上传页面
+                        print(f"尝试访问上传页面 (尝试 {retry_count + 1}/{max_retries})...")
+                        response = page.goto(
+                            'https://creator.douyin.com/creator-micro/content/upload',
+                            wait_until='domcontentloaded',  # 使用domcontentloaded而不是load
+                            timeout=60000
+                        )
+                        
+                        if response and response.ok:
+                            print("✅ 页面加载成功")
+                            
+                            # 等待页面准备就绪
+                            try:
+                                # 等待任意一个关键元素出现
+                                page.wait_for_selector(
+                                    'input[type="file"], .upload-btn, .semi-upload, [class*="upload"]',
+                                    timeout=30000,
+                                    state='attached'  # 使用attached而不是visible
+                                )
+                                print("✅ 页面已准备就绪")
+                                break
+                            except Exception as e:
+                                print(f"⚠️ 等待页面元素超时: {str(e)}")
+                                # 保存当前页面状态
+                                page.screenshot(path=f'douyin_page_state_{retry_count}.png')
+                                raise e
+                        else:
+                            print(f"⚠️ 页面响应异常: {response.status if response else 'No response'}")
+                            raise Exception("页面响应异常")
+                            
+                    except Exception as e:
+                        last_error = e
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            print(f"⚠️ 访问失败，等待重试... ({retry_count}/{max_retries})")
+                            print(f"错误信息: {str(e)}")
+                            # 保存错误现场
+                            try:
+                                page.screenshot(path=f'douyin_error_{retry_count}.png')
+                                with open(f'douyin_error_{retry_count}.html', 'w', encoding='utf-8') as f:
+                                    f.write(page.content())
+                            except:
+                                pass
+                            # 增加重试等待时间
+                            page.wait_for_timeout(5000 * retry_count)
+                            # 刷新cookies
+                            if cookies:
+                                context.clear_cookies()
+                                context.add_cookies(cookies)
+                            continue
+                        else:
+                            print(f"❌ 重试次数已达上限，上传失败: {str(last_error)}")
+                            return False
                 
                 # 检查登录状态
                 if not check_login(page):
@@ -921,8 +1003,9 @@ def upload_to_douyin(video_file):
                 print(f"❌ {os.path.basename(video_file)} 上传失败: {str(e)}")
                 # 保存错误现场
                 try:
-                    page.screenshot(path='douyin_error.png')
-                    page.content().then(lambda content: open('douyin_error.html', 'w', encoding='utf-8').write(content))
+                    page.screenshot(path='douyin_error_final.png')
+                    with open('douyin_error_final.html', 'w', encoding='utf-8') as f:
+                        f.write(page.content())
                 except:
                     pass
                 return False
