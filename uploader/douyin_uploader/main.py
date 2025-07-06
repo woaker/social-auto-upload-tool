@@ -593,12 +593,18 @@ def upload_to_douyin(page, video_file):
 def douyin_setup():
     try:
         with sync_playwright() as p:
-            # 使用 Docker 容器中的 Chrome
-            browser = p.chromium.connect_over_cdp("http://localhost:9222")
+            # 使用 Firefox 而不是 Chrome
+            browser = p.firefox.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                ]
+            )
             
             context = browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/91.0'
             )
             
             page = context.new_page()
