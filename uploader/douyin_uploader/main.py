@@ -1046,7 +1046,7 @@ def upload_to_douyin(video_file):
 def create_browser_context(p):
     """创建浏览器实例和上下文"""
     browser = p.chromium.launch(
-        headless=True,
+        headless=False,  # 使用有头模式
         args=[
             '--no-sandbox',
             '--disable-dev-shm-usage',
@@ -1062,22 +1062,31 @@ def create_browser_context(p):
             '--disable-extensions',
             '--disable-popup-blocking',
             '--disable-notifications',
-            # 内存相关优化
-            '--single-process',  # 使用单进程模式
-            '--no-zygote',      # 禁用zygote进程
-            '--disable-gpu-sandbox',
-            '--disable-software-rasterizer',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--disable-accelerated-video-decode',
-            # 降低内存使用
-            '--js-flags=--max-old-space-size=2048',
-            '--memory-pressure-off',
+            # 内存和性能优化
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding',
+            '--disable-background-networking',
+            '--disable-breakpad',
+            '--disable-component-extensions-with-background-pages',
+            '--disable-ipc-flooding-protection',
+            '--disable-default-apps',
+            '--mute-audio',
+            # 降低资源使用
+            '--disable-sync',
+            '--disable-speech-api',
+            '--disable-file-system',
+            '--disable-composited-antialiasing',
+            # 内存限制
+            '--js-flags=--max-old-space-size=1024',
+            # 进程模型
+            '--single-process',
+            '--no-zygote',
         ]
     )
     
     context = browser.new_context(
-        viewport={'width': 1920, 'height': 1080},
+        viewport={'width': 1280, 'height': 800},  # 减小视窗大小
         user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         ignore_https_errors=True,
         bypass_csp=True,
@@ -1087,14 +1096,46 @@ def create_browser_context(p):
         has_touch=False,
         is_mobile=False,
         device_scale_factor=1,
-        # 减少内存使用
-        service_workers='block'
+        # 减少资源使用
+        service_workers='block',
+        permissions=['notifications']
     )
     
     return browser, context
 
-def try_click_button(page, button, max_attempts=3):
+def recover_browser_session(p, current_url, cookies):
+    """恢复浏览器会话"""
+    try:
+        print("\n🔄 尝试恢复浏览器会话...")
+        
+        # 创建新的浏览器实例
+        browser, context = create_browser_context(p)
+        
+        # 添加cookies
+        if cookies:
+            context.add_cookies(cookies)
+        
+        # 创建新页面
+        page = context.new_page()
+        page.set_default_timeout(30000)
+        
+        # 导航到当前URL
+        print(f"正在重新访问: {current_url}")
+        page.goto(current_url, wait_until='domcontentloaded', timeout=30000)
+        
+        # 等待页面稳定
+        time.sleep(3)
+        
+        return page, browser, context
+    except Exception as e:
+        print(f"❌ 会话恢复失败: {str(e)}")
+        return None, None, None
+
+def try_click_button(page, button, p=None, cookies=None, max_attempts=3):
     """尝试多种方式点击按钮"""
+    current_browser = None
+    current_context = None
+    
     for attempt in range(max_attempts):
         try:
             # 检查页面是否崩溃
@@ -1102,18 +1143,38 @@ def try_click_button(page, button, max_attempts=3):
                 page.evaluate('1')  # 简单的JS执行测试
             except:
                 print("⚠️ 检测到页面崩溃，尝试恢复...")
-                # 重新加载页面
-                try:
-                    current_url = page.url
-                    page.reload(timeout=30000, wait_until='domcontentloaded')
+                if p:
+                    # 保存当前URL
+                    try:
+                        current_url = page.url
+                    except:
+                        print("⚠️ 无法获取当前URL")
+                        return False
+                    
+                    # 关闭崩溃的浏览器
+                    try:
+                        if current_browser:
+                            current_browser.close()
+                        if current_context:
+                            current_context.close()
+                    except:
+                        pass
+                    
+                    # 恢复会话
+                    page, current_browser, current_context = recover_browser_session(p, current_url, cookies)
+                    if not page:
+                        print("❌ 无法恢复会话")
+                        return False
+                    
                     # 重新获取按钮
                     button = page.wait_for_selector('button:has-text("发布")', 
                                                   state='visible',
                                                   timeout=30000)
                     if not button:
-                        raise Exception("无法重新获取发布按钮")
-                except Exception as e:
-                    print(f"❌ 页面恢复失败: {str(e)}")
+                        print("❌ 无法重新获取发布按钮")
+                        return False
+                else:
+                    print("❌ 无法恢复会话：未提供playwright实例")
                     return False
             
             print(f"\n第 {attempt + 1} 次尝试点击:")
@@ -1138,6 +1199,18 @@ def try_click_button(page, button, max_attempts=3):
             
             # 2. 尝试常规点击
             try:
+                # 确保按钮在视图中
+                button.scroll_into_view_if_needed()
+                time.sleep(1)
+                
+                # 移动鼠标到按钮上
+                page.mouse.move(
+                    button_info['position']['x'] + button_info['position']['width']/2,
+                    button_info['position']['y'] + button_info['position']['height']/2
+                )
+                time.sleep(0.5)
+                
+                # 点击
                 button.click(timeout=30000, force=True)
                 print("✅ 常规点击成功")
                 return True
@@ -1147,6 +1220,8 @@ def try_click_button(page, button, max_attempts=3):
                 # 3. 尝试使用position点击
                 try:
                     pos = button_info['position']
+                    page.mouse.move(pos['x'] + pos['width']/2, pos['y'] + pos['height']/2)
+                    time.sleep(0.5)
                     page.mouse.click(pos['x'] + pos['width']/2, pos['y'] + pos['height']/2)
                     print("✅ 位置点击成功")
                     return True
@@ -1156,12 +1231,21 @@ def try_click_button(page, button, max_attempts=3):
                     # 4. 尝试JavaScript点击
                     try:
                         page.evaluate("""(element) => {
-                            element.click();
-                            element.dispatchEvent(new MouseEvent('click', {
-                                bubbles: true,
-                                cancelable: true,
-                                view: window
-                            }));
+                            // 移除所有事件监听器
+                            const clone = element.cloneNode(true);
+                            element.parentNode.replaceChild(clone, element);
+                            
+                            // 直接点击
+                            clone.click();
+                            
+                            // 触发多个事件
+                            ['mousedown', 'mouseup', 'click'].forEach(eventType => {
+                                clone.dispatchEvent(new MouseEvent(eventType, {
+                                    bubbles: true,
+                                    cancelable: true,
+                                    view: window
+                                }));
+                            });
                         }""", button)
                         print("✅ JavaScript点击成功")
                         return True
@@ -1187,6 +1271,7 @@ def try_click_button(page, button, max_attempts=3):
                                 });
                             }""")
                             
+                            time.sleep(1)
                             button.click(timeout=30000, force=True)
                             print("✅ 移除遮罩后点击成功")
                             return True
@@ -1194,8 +1279,8 @@ def try_click_button(page, button, max_attempts=3):
                             print(f"移除遮罩后点击失败: {str(e4)}")
             
             if attempt < max_attempts - 1:
-                print(f"\n等待3秒后进行第 {attempt + 2} 次尝试...")
-                time.sleep(3)
+                print(f"\n等待5秒后进行第 {attempt + 2} 次尝试...")
+                time.sleep(5)
                 
                 # 保存当前状态
                 try:
@@ -1208,12 +1293,12 @@ def try_click_button(page, button, max_attempts=3):
         except Exception as e:
             print(f"尝试过程出错: {str(e)}")
             if attempt < max_attempts - 1:
-                print(f"\n等待3秒后重试...")
-                time.sleep(3)
+                print(f"\n等待5秒后重试...")
+                time.sleep(5)
     
     return False
 
-def handle_publish(page):
+def handle_publish(page, p=None, cookies=None):
     """处理发布阶段"""
     try:
         # 等待发布按钮完全可点击
@@ -1235,7 +1320,7 @@ def handle_publish(page):
         
         # 尝试点击发布按钮
         print("尝试点击发布按钮...")
-        if not try_click_button(page, publish_button):
+        if not try_click_button(page, publish_button, p, cookies):
             print("❌ 所有点击方式都失败了")
             
             # 保存失败现场
