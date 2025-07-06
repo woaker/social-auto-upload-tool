@@ -732,7 +732,7 @@ def upload_to_douyin(video_file):
     """上传视频到抖音"""
     try:
         with sync_playwright() as p:
-            # 启动浏览器
+            # 启动浏览器，添加更多内存和稳定性相关的参数
             browser = p.chromium.launch(
                 headless=True,
                 args=[
@@ -740,18 +740,31 @@ def upload_to_douyin(video_file):
                     '--disable-dev-shm-usage',
                     '--disable-gpu',
                     '--disable-web-security',
-                    '--disable-features=IsolateOrigins,site-per-process', # 禁用站点隔离
+                    '--disable-features=IsolateOrigins,site-per-process',
                     '--disable-site-isolation-trials',
                     '--ignore-certificate-errors',
                     '--disable-blink-features=AutomationControlled',
                     '--disable-setuid-sandbox',
                     '--no-first-run',
                     '--no-default-browser-check',
-                    '--no-zygote',
-                    '--disable-accelerated-2d-canvas',
-                    '--disable-accelerated-video-decode',
-                    '--disable-gpu-sandbox',
-                    '--disable-software-rasterizer',
+                    '--disable-extensions',
+                    '--disable-popup-blocking',
+                    '--disable-notifications',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-background-timer-throttling',
+                    '--memory-pressure-off',
+                    # 增加内存限制
+                    '--js-flags=--max-old-space-size=4096',
+                    # 限制并发连接数
+                    '--limit-fps=30',
+                    '--disable-threaded-scrolling',
+                    '--disable-threaded-animation',
+                    # 禁用不必要的功能
+                    '--disable-speech-api',
+                    '--disable-sync',
+                    '--disable-file-system',
+                    '--disable-breakpad',
                 ]
             )
             
@@ -759,7 +772,13 @@ def upload_to_douyin(video_file):
                 viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 ignore_https_errors=True,
-                bypass_csp=True
+                bypass_csp=True,
+                # 增加浏览器性能设置
+                java_script_enabled=True,
+                accept_downloads=False,
+                has_touch=False,
+                is_mobile=False,
+                device_scale_factor=1
             )
             
             # 加载cookies
@@ -768,7 +787,7 @@ def upload_to_douyin(video_file):
                 context.add_cookies(cookies)
             
             page = context.new_page()
-            page.set_default_timeout(120000)  # 增加默认超时时间到120秒
+            page.set_default_timeout(120000)  # 2分钟超时
             
             try:
                 print("🌐 访问抖音创作者平台...")
@@ -904,7 +923,6 @@ def upload_to_douyin(video_file):
                 print(f"正在上传视频: {os.path.basename(video_file)}")
                 upload_input.set_input_files(video_file)
                 
-                # 监控上传进度
                 print("⏳ 等待上传开始...")
                 
                 # 等待上传进度出现
@@ -928,20 +946,18 @@ def upload_to_douyin(video_file):
                 max_wait = 300  # 最长等待5分钟
                 start_time = time.time()
                 last_progress = 0
+                consecutive_errors = 0  # 连续错误计数
                 
                 while time.time() - start_time < max_wait:
                     try:
-                        # 检查进度
+                        # 使用更简单的JavaScript代码检查进度
                         progress = page.evaluate('''
                             () => {
-                                const progressEls = document.querySelectorAll('[class*="progress"], [class*="percentage"], div[role="progressbar"]');
-                                for (const el of progressEls) {
+                                const els = document.querySelectorAll('[class*="progress"], [class*="percentage"], div[role="progressbar"]');
+                                for (const el of els) {
                                     const text = el.textContent || '';
                                     const match = text.match(/\\d+/);
                                     if (match) return parseInt(match[0]);
-                                    // 检查aria-valuenow属性
-                                    const value = el.getAttribute('aria-valuenow');
-                                    if (value) return parseInt(value);
                                 }
                                 return null;
                             }
@@ -950,51 +966,58 @@ def upload_to_douyin(video_file):
                         if progress is not None and progress != last_progress:
                             print(f"⏳ 上传进度: {progress}%")
                             last_progress = progress
+                            consecutive_errors = 0  # 重置错误计数
+                            
                             if progress >= 100:
                                 print("✅ 上传完成，等待处理...")
+                                # 等待处理完成
+                                time.sleep(5)
                                 break
                         
-                        # 检查上传成功标志
-                        success_selectors = [
-                            '.upload-success-icon',
-                            '.success-icon',
-                            'text=上传成功',
-                            '[class*="success"]',
-                            'text=发布',  # 如果出现发布按钮，说明上传成功
-                            'button:has-text("发布")',
-                            '[class*="publish-btn"]'
-                        ]
-                        
-                        for selector in success_selectors:
-                            try:
-                                if page.wait_for_selector(selector, timeout=1000):
-                                    print("✅ 检测到上传成功标志")
-                                    return handle_publish(page)
-                            except:
-                                continue
-                                
+                        # 检查是否出现发布按钮
+                        try:
+                            if page.query_selector('button:has-text("发布")'):
+                                print("✅ 检测到发布按钮")
+                                return handle_publish(page)
+                        except:
+                            pass
+                            
                         # 检查错误提示
-                        error_selectors = [
-                            'text=上传失败',
-                            'text=网络错误',
-                            'text=文件格式不支持',
-                            '[class*="error"]'
-                        ]
-                        
-                        for selector in error_selectors:
-                            try:
-                                error_el = page.wait_for_selector(selector, timeout=1000)
-                                if error_el:
-                                    error_text = error_el.text_content()
-                                    print(f"❌ 上传出错: {error_text}")
-                                    return False
-                            except:
-                                continue
+                        try:
+                            error_el = page.query_selector('text=上传失败, text=网络错误, text=文件格式不支持, [class*="error"]')
+                            if error_el:
+                                error_text = error_el.text_content()
+                                print(f"❌ 上传出错: {error_text}")
+                                return False
+                        except:
+                            pass
                         
                         time.sleep(1)
+                        
                     except Exception as e:
                         print(f"监控进度时出错: {str(e)}")
-                        time.sleep(1)
+                        consecutive_errors += 1
+                        
+                        # 如果连续错误超过5次，保存错误现场并重试
+                        if consecutive_errors >= 5:
+                            print("⚠️ 检测到连续错误，正在保存错误现场...")
+                            try:
+                                page.screenshot(path='douyin_upload_error.png')
+                                with open('douyin_upload_error.html', 'w', encoding='utf-8') as f:
+                                    f.write(page.content())
+                            except:
+                                pass
+                            
+                            # 尝试刷新页面
+                            try:
+                                page.reload(timeout=30000, wait_until='domcontentloaded')
+                                print("🔄 页面已刷新，继续监控...")
+                                consecutive_errors = 0
+                            except:
+                                print("❌ 页面刷新失败")
+                                return False
+                        
+                        time.sleep(2)  # 错误后等待更长时间
                 
                 print("❌ 上传超时")
                 return False
