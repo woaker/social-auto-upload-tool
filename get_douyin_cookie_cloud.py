@@ -230,10 +230,10 @@ def get_douyin_cookie_cloud():
                         
                         # 创建二维码实例
                         qr = qrcode.QRCode(
-                            version=None,  # 自动选择最小版本
+                            version=1,  # 使用最小的版本
                             error_correction=qrcode.constants.ERROR_CORRECT_L,
                             box_size=1,
-                            border=1
+                            border=0  # 移除边框
                         )
                         qr.add_data(qr_bytes)
                         qr.make(fit=True)
@@ -245,9 +245,9 @@ def get_douyin_cookie_cloud():
                         original_width = len(matrix[0])
                         original_height = len(matrix)
                         
-                        # 目标尺寸（终端中的字符数）- 调小尺寸以适应终端
-                        target_width = 25  # 减小宽度
-                        target_height = 25  # 减小高度
+                        # 目标尺寸（终端中的字符数）- 使用更小的尺寸
+                        target_width = 15  # 更小的宽度
+                        target_height = 15  # 更小的高度
                         
                         # 计算缩放因子
                         scale_x = target_width / original_width
@@ -259,22 +259,34 @@ def get_douyin_cookie_cloud():
                         print('3. 点击右上角"扫一扫"')
                         print("4. 扫描下面的二维码：\n")
                         
-                        # 绘制缩放后的二维码，确保每行结束添加换行符
-                        for y in range(target_height):
+                        # 使用更紧凑的显示方式
+                        for y in range(0, target_height, 2):  # 每次处理两行
                             line = ""
                             for x in range(target_width):
-                                # 映射回原始坐标
-                                orig_x = int(x / scale_x)
-                                orig_y = int(y / scale_y)
-                                # 确保坐标在有效范围内
-                                orig_x = min(orig_x, original_width - 1)
-                                orig_y = min(orig_y, original_height - 1)
-                                # 根据原始矩阵的值决定是否填充
-                                if matrix[orig_y][orig_x]:
+                                # 获取上下两个像素
+                                top_pixel = False
+                                bottom_pixel = False
+                                
+                                # 上半部分像素
+                                orig_x = min(int(x / scale_x), original_width - 1)
+                                orig_y = min(int(y / scale_y), original_height - 1)
+                                top_pixel = matrix[orig_y][orig_x]
+                                
+                                # 下半部分像素（如果存在）
+                                if y + 1 < target_height:
+                                    orig_y = min(int((y + 1) / scale_y), original_height - 1)
+                                    bottom_pixel = matrix[orig_y][orig_x]
+                                
+                                # 使用不同的字符表示不同的组合
+                                if top_pixel and bottom_pixel:
                                     line += "█"
+                                elif top_pixel:
+                                    line += "▀"
+                                elif bottom_pixel:
+                                    line += "▄"
                                 else:
                                     line += " "
-                            print(line + "\n")  # 添加额外的换行使二维码更容易扫描
+                            print(line)
                         
                         print("\n⏳ 等待登录成功...")
                         print("   请使用抖音APP扫描二维码完成登录")
