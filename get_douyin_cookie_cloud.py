@@ -246,8 +246,8 @@ def get_douyin_cookie_cloud():
                         original_height = len(matrix)
                         
                         # 目标尺寸（终端中的字符数）- 使用更小的尺寸
-                        target_width = 15  # 更小的宽度
-                        target_height = 15  # 更小的高度
+                        target_width = 30  # 更小的宽度
+                        target_height = 30  # 更小的高度
                         
                         # 计算缩放因子
                         scale_x = target_width / original_width
