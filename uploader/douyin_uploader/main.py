@@ -1043,6 +1043,61 @@ def upload_to_douyin(video_file):
         print(f"❌ 浏览器启动失败: {str(e)}")
         return False
 
+def try_click_button(page, button, max_attempts=3):
+    """尝试多种方式点击按钮"""
+    for attempt in range(max_attempts):
+        try:
+            # 1. 尝试常规点击
+            button.click(timeout=30000)
+            return True
+        except Exception as e1:
+            print(f"常规点击失败 (尝试 {attempt + 1}/{max_attempts}): {str(e1)}")
+            
+            try:
+                # 2. 尝试使用JavaScript点击
+                page.evaluate("""(element) => {
+                    element.click();
+                    element.dispatchEvent(new MouseEvent('click', {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window
+                    }));
+                }""", button)
+                return True
+            except Exception as e2:
+                print(f"JavaScript点击失败: {str(e2)}")
+                
+                try:
+                    # 3. 尝试移除可能的遮罩层
+                    page.evaluate("""() => {
+                        const overlays = document.querySelectorAll('[class*="overlay"], [class*="mask"], [class*="modal"], [class*="dialog"]');
+                        overlays.forEach(overlay => overlay.remove());
+                        
+                        // 移除可能影响点击的样式
+                        const elements = document.querySelectorAll('*');
+                        elements.forEach(el => {
+                            if (window.getComputedStyle(el).pointerEvents === 'none') {
+                                el.style.pointerEvents = 'auto';
+                            }
+                            if (window.getComputedStyle(el).zIndex > 1000) {
+                                el.style.zIndex = '0';
+                            }
+                        });
+                    }""")
+                    
+                    # 再次尝试点击
+                    button.click(timeout=30000)
+                    return True
+                except Exception as e3:
+                    print(f"移除遮罩后点击失败: {str(e3)}")
+                    
+                    if attempt < max_attempts - 1:
+                        print("等待2秒后重试...")
+                        time.sleep(2)
+                        continue
+    
+    return False
+
 def handle_publish(page):
     """处理发布阶段"""
     try:
@@ -1063,8 +1118,22 @@ def handle_publish(page):
         # 记录发布前的URL
         pre_publish_url = page.url
         
-        # 点击发布按钮
-        publish_button.click()
+        # 尝试点击发布按钮
+        print("尝试点击发布按钮...")
+        if not try_click_button(page, publish_button):
+            print("❌ 所有点击方式都失败了")
+            
+            # 保存失败现场
+            try:
+                page.screenshot(path='douyin_click_error.png')
+                with open('douyin_click_error.html', 'w', encoding='utf-8') as f:
+                    f.write(page.content())
+                print("📸 已保存点击失败现场")
+            except:
+                pass
+                
+            return False
+        
         print("✅ 点击发布按钮成功")
         
         # 等待页面发生变化
