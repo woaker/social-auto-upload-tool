@@ -45,64 +45,7 @@ def start_http_server(port=8000):
     return httpd
 
 def get_douyin_cookie_cloud():
-    """使用selenium获取抖音cookie"""
-    
-    # 创建保存目录
-    cookies_dir = Path("./cookiesFile")
-    cookies_dir.mkdir(exist_ok=True)
-    
-    cookie_file = cookies_dir / "douyin_account.json"
-    
-    # 确保DISPLAY环境变量设置正确
-    if "DISPLAY" not in os.environ:
-        os.environ["DISPLAY"] = ":99"
-    
-    # 配置Chrome选项
-    options = uc.ChromeOptions()
-    
-    # 基础配置
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument('--headless=new')  # 使用新的headless模式
-    options.add_argument('--disable-extensions')
-    options.add_argument('--disable-dev-tools')
-    options.add_argument('--no-first-run')
-    options.add_argument('--window-size=1920,1080')
-    options.add_argument('--start-maximized')
-    options.add_argument('--lang=zh-CN')
-    options.add_argument('--disable-blink-features=AutomationControlled')
-    
-    # 性能优化
-    options.add_argument('--disable-software-rasterizer')
-    options.add_argument('--disable-smooth-scrolling')
-    options.add_argument('--disable-javascript-harmony-shipping')
-    options.add_argument('--disable-features=NetworkService')
-    options.add_argument('--force-color-profile=srgb')
-    options.add_argument('--disable-accelerated-2d-canvas')
-    options.add_argument('--disable-accelerated-video-decode')
-    options.add_argument('--disable-web-security')
-    
-    # 内存优化
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-backing-store-limit')
-    options.add_argument('--memory-pressure-off')
-    
-    # 稳定性增强
-    options.add_argument('--disable-background-timer-throttling')
-    options.add_argument('--disable-backgrounding-occluded-windows')
-    options.add_argument('--disable-breakpad')
-    options.add_argument('--disable-component-extensions-with-background-pages')
-    options.add_argument('--disable-features=TranslateUI')
-    options.add_argument('--disable-ipc-flooding-protection')
-    options.add_argument('--disable-renderer-backgrounding')
-    options.add_argument('--enable-automation')
-    options.add_argument('--ignore-certificate-errors')
-    options.add_argument('--remote-debugging-port=9222')
-    
-    # 设置二进制文件路径
-    options.binary_location = "/usr/bin/google-chrome-stable"
-    
+    """获取抖音cookie（云服务器版本）"""
     driver = None
     server = None  # 初始化server变量
     try:
@@ -110,25 +53,65 @@ def get_douyin_cookie_cloud():
         server = start_http_server()  # 保存server对象的引用
         
         print("🚀 启动浏览器...")
-        print("Chrome路径:", options.binary_location)
-        print("DISPLAY:", os.environ.get("DISPLAY"))
-        print("Python版本:", sys.version)
         
-        # 增加超时设置
-        uc.DEFAULT_CONNECTION_TIMEOUT = 300
+        # 配置Chrome选项
+        options = uc.ChromeOptions()
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-gpu')
+        options.add_argument('--disable-infobars')
+        options.add_argument('--disable-notifications')
+        options.add_argument('--headless=new')  # 使用新的headless模式
+        options.binary_location = '/usr/bin/google-chrome-stable'
         
-        # 使用自定义的ChromeDriver路径
+        # 使用undetected_chromedriver，自动下载匹配的ChromeDriver
         driver = uc.Chrome(
             options=options,
-            driver_executable_path="/usr/bin/chromedriver",
-            browser_executable_path="/usr/bin/google-chrome-stable",
-            version_main=138,  # 更新为当前Chrome版本
-            command_executor_timeout=300,
-            page_load_timeout=300,
-            service_args=['--verbose'],  # 添加详细日志
-            enable_cdp_events=True,  # 启用CDP事件
-            debug=True  # 启用调试模式
+            version_main=138,  # 指定Chrome主版本号
+            driver_executable_path=None  # 让undetected_chromedriver自动下载匹配的版本
         )
+        
+        print("Chrome路径:", options.binary_location)
+        
+        # 确保DISPLAY环境变量设置正确
+        if "DISPLAY" not in os.environ:
+            os.environ["DISPLAY"] = ":99"
+        
+        # 配置Chrome选项
+        options.add_argument('--disable-extensions')
+        options.add_argument('--disable-dev-tools')
+        options.add_argument('--no-first-run')
+        options.add_argument('--window-size=1920,1080')
+        options.add_argument('--start-maximized')
+        options.add_argument('--lang=zh-CN')
+        options.add_argument('--disable-blink-features=AutomationControlled')
+        
+        # 性能优化
+        options.add_argument('--disable-software-rasterizer')
+        options.add_argument('--disable-smooth-scrolling')
+        options.add_argument('--disable-javascript-harmony-shipping')
+        options.add_argument('--disable-features=NetworkService')
+        options.add_argument('--force-color-profile=srgb')
+        options.add_argument('--disable-accelerated-2d-canvas')
+        options.add_argument('--disable-accelerated-video-decode')
+        options.add_argument('--disable-web-security')
+        
+        # 内存优化
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--disable-backing-store-limit')
+        options.add_argument('--memory-pressure-off')
+        
+        # 稳定性增强
+        options.add_argument('--disable-background-timer-throttling')
+        options.add_argument('--disable-backgrounding-occluded-windows')
+        options.add_argument('--disable-breakpad')
+        options.add_argument('--disable-component-extensions-with-background-pages')
+        options.add_argument('--disable-features=TranslateUI')
+        options.add_argument('--disable-ipc-flooding-protection')
+        options.add_argument('--disable-renderer-backgrounding')
+        options.add_argument('--enable-automation')
+        options.add_argument('--ignore-certificate-errors')
+        options.add_argument('--remote-debugging-port=9222')
         
         # 设置窗口大小
         driver.set_window_size(1920, 1080)
