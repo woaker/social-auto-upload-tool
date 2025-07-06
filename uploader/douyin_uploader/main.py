@@ -7,6 +7,7 @@ import asyncio
 import time
 from playwright.sync_api import sync_playwright
 import json
+import re
 
 from config import LOCAL_CHROME_PATH
 from utils.base_social_media import set_init_script
@@ -1043,42 +1044,122 @@ def upload_to_douyin(video_file):
         return False
 
 def handle_publish(page):
-    """处理发布流程"""
+    """处理发布阶段"""
     try:
+        # 等待发布按钮完全可点击
+        publish_button = page.wait_for_selector('button:has-text("发布")', 
+                                              state='visible',
+                                              timeout=30000)
+        
+        if not publish_button:
+            print("❌ 未找到发布按钮")
+            return False
+            
+        print("✅ 检测到发布按钮")
+        
+        # 确保页面稳定
+        time.sleep(2)
+        
         # 点击发布按钮
-        publish_selectors = [
-            'button:has-text("发布")',
-            '.publish-btn',
-            '[class*="publish"]:not([disabled])'
+        publish_button.click()
+        print("✅ 点击发布按钮成功")
+        
+        # 等待发布完成的标志
+        success_indicators = [
+            'text=发布成功',
+            'text=已发布',
+            'text=视频已发布',
+            '[class*="success"]',
+            '[class*="published"]'
         ]
         
-        publish_success = False
-        for selector in publish_selectors:
+        # 等待任意成功标志出现
+        success = False
+        for indicator in success_indicators:
             try:
-                publish_button = page.wait_for_selector(selector, timeout=30000)
-                if publish_button:
-                    publish_button.click()
-                    publish_success = True
-                    print("✅ 点击发布按钮成功")
+                if page.wait_for_selector(indicator, timeout=30000):
+                    print(f"✅ 检测到发布成功标志: {indicator}")
+                    success = True
                     break
             except:
                 continue
-        
-        if not publish_success:
-            print("❌ 未找到发布按钮")
-            return False
-        
-        # 等待发布完成
-        try:
-            page.wait_for_url('**/content/manage**', timeout=60000)
-            print("✅ 视频发布成功！")
-            return True
-        except:
-            print("❌ 发布可能未完成，请手动检查")
-            return False
+                
+        if not success:
+            # 检查是否存在错误提示
+            error_indicators = [
+                'text=发布失败',
+                'text=网络错误',
+                'text=系统繁忙',
+                '[class*="error"]',
+                '[class*="fail"]'
+            ]
             
+            for indicator in error_indicators:
+                try:
+                    error_el = page.query_selector(indicator)
+                    if error_el:
+                        error_text = error_el.text_content()
+                        print(f"❌ 发布失败: {error_text}")
+                        return False
+                except:
+                    continue
+            
+            print("⚠️ 未检测到明确的发布结果，建议手动确认")
+            
+            # 保存发布状态截图
+            try:
+                page.screenshot(path='douyin_publish_status.png')
+                print("📸 已保存发布状态截图")
+            except:
+                pass
+                
+            return None  # 返回None表示状态未知
+            
+        # 额外等待确保发布完成
+        time.sleep(5)
+        
+        # 检查URL是否包含作品ID
+        try:
+            current_url = page.url
+            if 'publish/success' in current_url or 'video/manage' in current_url:
+                print("✅ 已跳转到发布成功页面")
+                
+                # 尝试获取视频ID
+                video_id = None
+                match = re.search(r'video/(\d+)', current_url)
+                if match:
+                    video_id = match.group(1)
+                    print(f"📝 视频ID: {video_id}")
+                
+                return True
+        except:
+            pass
+            
+        return success
+        
     except Exception as e:
         print(f"❌ 发布过程出错: {str(e)}")
+        
+        # 保存错误现场
+        try:
+            page.screenshot(path='douyin_publish_error.png')
+            with open('douyin_publish_error.html', 'w', encoding='utf-8') as f:
+                f.write(page.content())
+        except:
+            pass
+            
+        return False
+
+def process_upload_result(success):
+    """处理上传结果"""
+    if success is True:
+        print("\n✅ 视频发布成功！")
+        return True
+    elif success is False:
+        print("\n❌ 视频发布失败")
+        return False
+    else:  # success is None
+        print("\n⚠️ 发布状态未知，请手动检查")
         return False
 
 
