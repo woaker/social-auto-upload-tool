@@ -822,59 +822,100 @@ def upload_to_douyin(video_file):
                 print(f"正在上传视频: {os.path.basename(video_file)}")
                 upload_input.set_input_files(video_file)
                 
-                # 等待上传完成的标志
-                success_selectors = [
-                    '.upload-success-icon',
-                    '.success-icon',
-                    'text=上传成功',
-                    '[class*="success"]'
+                # 监控上传进度
+                print("⏳ 等待上传开始...")
+                
+                # 等待上传进度出现
+                progress_selectors = [
+                    '[class*="progress"]',
+                    '[class*="upload-progress"]',
+                    '[class*="percentage"]',
+                    'div[role="progressbar"]'
                 ]
                 
-                upload_success = False
-                for selector in success_selectors:
+                # 等待任意进度条出现
+                for selector in progress_selectors:
                     try:
-                        if page.wait_for_selector(selector, timeout=300000):  # 5分钟超时
-                            upload_success = True
-                            print("✅ 视频上传成功")
+                        if page.wait_for_selector(selector, timeout=10000):
+                            print("✅ 检测到上传进度条")
                             break
                     except:
                         continue
                 
-                if not upload_success:
-                    print("❌ 未检测到上传成功标志")
-                    return False
+                # 监控上传状态
+                max_wait = 300  # 最长等待5分钟
+                start_time = time.time()
+                last_progress = 0
                 
-                # 点击发布按钮
-                publish_selectors = [
-                    'button:has-text("发布")',
-                    '.publish-btn',
-                    '[class*="publish"]:not([disabled])'
-                ]
-                
-                publish_success = False
-                for selector in publish_selectors:
+                while time.time() - start_time < max_wait:
                     try:
-                        publish_button = page.wait_for_selector(selector, timeout=30000)
-                        if publish_button:
-                            publish_button.click()
-                            publish_success = True
-                            print("✅ 点击发布按钮成功")
-                            break
-                    except:
-                        continue
+                        # 检查进度
+                        progress = page.evaluate('''
+                            () => {
+                                const progressEls = document.querySelectorAll('[class*="progress"], [class*="percentage"], div[role="progressbar"]');
+                                for (const el of progressEls) {
+                                    const text = el.textContent || '';
+                                    const match = text.match(/\\d+/);
+                                    if (match) return parseInt(match[0]);
+                                    // 检查aria-valuenow属性
+                                    const value = el.getAttribute('aria-valuenow');
+                                    if (value) return parseInt(value);
+                                }
+                                return null;
+                            }
+                        ''')
+                        
+                        if progress is not None and progress != last_progress:
+                            print(f"⏳ 上传进度: {progress}%")
+                            last_progress = progress
+                            if progress >= 100:
+                                print("✅ 上传完成，等待处理...")
+                                break
+                        
+                        # 检查上传成功标志
+                        success_selectors = [
+                            '.upload-success-icon',
+                            '.success-icon',
+                            'text=上传成功',
+                            '[class*="success"]',
+                            'text=发布',  # 如果出现发布按钮，说明上传成功
+                            'button:has-text("发布")',
+                            '[class*="publish-btn"]'
+                        ]
+                        
+                        for selector in success_selectors:
+                            try:
+                                if page.wait_for_selector(selector, timeout=1000):
+                                    print("✅ 检测到上传成功标志")
+                                    return handle_publish(page)
+                            except:
+                                continue
+                                
+                        # 检查错误提示
+                        error_selectors = [
+                            'text=上传失败',
+                            'text=网络错误',
+                            'text=文件格式不支持',
+                            '[class*="error"]'
+                        ]
+                        
+                        for selector in error_selectors:
+                            try:
+                                error_el = page.wait_for_selector(selector, timeout=1000)
+                                if error_el:
+                                    error_text = error_el.text_content()
+                                    print(f"❌ 上传出错: {error_text}")
+                                    return False
+                            except:
+                                continue
+                        
+                        time.sleep(1)
+                    except Exception as e:
+                        print(f"监控进度时出错: {str(e)}")
+                        time.sleep(1)
                 
-                if not publish_success:
-                    print("❌ 未找到发布按钮")
-                    return False
-                
-                # 等待发布完成
-                try:
-                    page.wait_for_url('**/content/manage**', timeout=60000)
-                    print(f"✅ {os.path.basename(video_file)} 发布成功！")
-                    return True
-                except:
-                    print("❌ 发布可能未完成，请手动检查")
-                    return False
+                print("❌ 上传超时")
+                return False
                 
             except Exception as e:
                 print(f"❌ {os.path.basename(video_file)} 上传失败: {str(e)}")
@@ -893,6 +934,45 @@ def upload_to_douyin(video_file):
                     pass
     except Exception as e:
         print(f"❌ 浏览器启动失败: {str(e)}")
+        return False
+
+def handle_publish(page):
+    """处理发布流程"""
+    try:
+        # 点击发布按钮
+        publish_selectors = [
+            'button:has-text("发布")',
+            '.publish-btn',
+            '[class*="publish"]:not([disabled])'
+        ]
+        
+        publish_success = False
+        for selector in publish_selectors:
+            try:
+                publish_button = page.wait_for_selector(selector, timeout=30000)
+                if publish_button:
+                    publish_button.click()
+                    publish_success = True
+                    print("✅ 点击发布按钮成功")
+                    break
+            except:
+                continue
+        
+        if not publish_success:
+            print("❌ 未找到发布按钮")
+            return False
+        
+        # 等待发布完成
+        try:
+            page.wait_for_url('**/content/manage**', timeout=60000)
+            print("✅ 视频发布成功！")
+            return True
+        except:
+            print("❌ 发布可能未完成，请手动检查")
+            return False
+            
+    except Exception as e:
+        print(f"❌ 发布过程出错: {str(e)}")
         return False
 
 
