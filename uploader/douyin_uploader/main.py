@@ -593,22 +593,8 @@ def upload_to_douyin(page, video_file):
 def douyin_setup():
     try:
         with sync_playwright() as p:
-            # 配置浏览器选项
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-gpu',
-                    '--no-first-run',
-                    '--no-zygote',
-                    '--single-process',
-                    '--disable-extensions',
-                    '--disable-features=VizDisplayCompositor',
-                    '--disable-software-rasterizer',
-                ]
-            )
+            # 使用 Docker 容器中的 Chrome
+            browser = p.chromium.connect_over_cdp("http://localhost:9222")
             
             context = browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
