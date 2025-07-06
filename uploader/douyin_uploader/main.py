@@ -589,10 +589,20 @@ class DouYinVideo(object):
 def load_cookies():
     """加载cookies"""
     try:
-        cookie_file = os.path.join('cookies', 'douyin_uploader', 'douyin_cookies.json')
-        if os.path.exists(cookie_file):
-            with open(cookie_file, 'r') as f:
-                return json.load(f)
+        # 尝试多个可能的cookie文件路径
+        cookie_paths = [
+            os.path.join('cookies', 'douyin_uploader', 'douyin_cookies.json'),
+            os.path.join('cookiesFile', 'douyin_account.json'),
+            'douyin_account.json'
+        ]
+        
+        for cookie_file in cookie_paths:
+            if os.path.exists(cookie_file):
+                print(f"✅ 找到cookie文件: {cookie_file}")
+                with open(cookie_file, 'r') as f:
+                    return json.load(f)
+                    
+        print("❌ 未找到任何cookie文件")
     except Exception as e:
         print(f"❌ 加载cookies失败: {str(e)}")
     return None
@@ -600,12 +610,24 @@ def load_cookies():
 def save_cookies(cookies):
     """保存cookies"""
     try:
+        # 优先保存到标准位置
         cookie_dir = os.path.join('cookies', 'douyin_uploader')
         os.makedirs(cookie_dir, exist_ok=True)
         cookie_file = os.path.join(cookie_dir, 'douyin_cookies.json')
+        
         with open(cookie_file, 'w') as f:
             json.dump(cookies, f)
-        print("✅ cookies保存成功")
+        print(f"✅ cookies已保存到: {cookie_file}")
+        
+        # 同时保存一份到cookiesFile目录
+        alt_cookie_dir = 'cookiesFile'
+        os.makedirs(alt_cookie_dir, exist_ok=True)
+        alt_cookie_file = os.path.join(alt_cookie_dir, 'douyin_account.json')
+        
+        with open(alt_cookie_file, 'w') as f:
+            json.dump(cookies, f)
+        print(f"✅ cookies已备份到: {alt_cookie_file}")
+        
     except Exception as e:
         print(f"❌ 保存cookies失败: {str(e)}")
 
