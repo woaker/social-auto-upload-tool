@@ -770,30 +770,120 @@ def upload_to_douyin(video_file):
                 
                 print("📤 开始上传视频...")
                 
-                # 等待上传按钮出现
-                upload_input = page.wait_for_selector('input[type="file"]', timeout=30000)
+                # 等待页面加载完成
+                page.wait_for_load_state('networkidle')
+                
+                # 尝试多个可能的上传按钮选择器
+                upload_selectors = [
+                    'input[type="file"]',
+                    'input[accept*="video"]',
+                    '.upload-btn input[type="file"]',
+                    '.semi-upload input[type="file"]',
+                    'div[class*="upload"] input[type="file"]'
+                ]
+                
+                upload_input = None
+                for selector in upload_selectors:
+                    try:
+                        print(f"尝试查找上传按钮: {selector}")
+                        # 使用evaluate处理隐藏的input
+                        elements = page.evaluate(f'''
+                            () => {{
+                                const inputs = document.querySelectorAll('{selector}');
+                                return Array.from(inputs).map(el => {{
+                                    return {{
+                                        visible: el.offsetParent !== null,
+                                        disabled: el.disabled,
+                                        type: el.type
+                                    }};
+                                }});
+                            }}
+                        ''')
+                        
+                        if elements:
+                            print(f"找到 {len(elements)} 个匹配元素")
+                            # 等待元素可交互
+                            upload_input = page.wait_for_selector(selector, state='attached', timeout=5000)
+                            if upload_input:
+                                print(f"✅ 成功找到上传按钮: {selector}")
+                                break
+                    except Exception as e:
+                        print(f"尝试选择器 {selector} 失败: {str(e)}")
+                        continue
+                
                 if not upload_input:
-                    print("❌ 未找到上传按钮")
+                    print("❌ 未找到可用的上传按钮")
+                    # 保存页面源码以供调试
+                    page.content().then(lambda content: open('douyin_upload_page.html', 'w', encoding='utf-8').write(content))
+                    page.screenshot(path='douyin_upload_error.png')
                     return False
                 
                 # 上传视频
+                print(f"正在上传视频: {os.path.basename(video_file)}")
                 upload_input.set_input_files(video_file)
                 
-                # 等待上传完成
-                page.wait_for_selector('.upload-success-icon', timeout=300000)  # 5分钟超时
+                # 等待上传完成的标志
+                success_selectors = [
+                    '.upload-success-icon',
+                    '.success-icon',
+                    'text=上传成功',
+                    '[class*="success"]'
+                ]
+                
+                upload_success = False
+                for selector in success_selectors:
+                    try:
+                        if page.wait_for_selector(selector, timeout=300000):  # 5分钟超时
+                            upload_success = True
+                            print("✅ 视频上传成功")
+                            break
+                    except:
+                        continue
+                
+                if not upload_success:
+                    print("❌ 未检测到上传成功标志")
+                    return False
                 
                 # 点击发布按钮
-                publish_button = page.wait_for_selector('button:has-text("发布")', timeout=30000)
-                publish_button.click()
+                publish_selectors = [
+                    'button:has-text("发布")',
+                    '.publish-btn',
+                    '[class*="publish"]:not([disabled])'
+                ]
+                
+                publish_success = False
+                for selector in publish_selectors:
+                    try:
+                        publish_button = page.wait_for_selector(selector, timeout=30000)
+                        if publish_button:
+                            publish_button.click()
+                            publish_success = True
+                            print("✅ 点击发布按钮成功")
+                            break
+                    except:
+                        continue
+                
+                if not publish_success:
+                    print("❌ 未找到发布按钮")
+                    return False
                 
                 # 等待发布完成
-                page.wait_for_selector('.publish-success', timeout=60000)
-                
-                print(f"✅ {os.path.basename(video_file)} 上传成功！")
-                return True
+                try:
+                    page.wait_for_url('**/content/manage**', timeout=60000)
+                    print(f"✅ {os.path.basename(video_file)} 发布成功！")
+                    return True
+                except:
+                    print("❌ 发布可能未完成，请手动检查")
+                    return False
                 
             except Exception as e:
                 print(f"❌ {os.path.basename(video_file)} 上传失败: {str(e)}")
+                # 保存错误现场
+                try:
+                    page.screenshot(path='douyin_error.png')
+                    page.content().then(lambda content: open('douyin_error.html', 'w', encoding='utf-8').write(content))
+                except:
+                    pass
                 return False
             finally:
                 try:
