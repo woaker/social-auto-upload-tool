@@ -1043,58 +1043,173 @@ def upload_to_douyin(video_file):
         print(f"❌ 浏览器启动失败: {str(e)}")
         return False
 
+def create_browser_context(p):
+    """创建浏览器实例和上下文"""
+    browser = p.chromium.launch(
+        headless=True,
+        args=[
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-site-isolation-trials',
+            '--ignore-certificate-errors',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-setuid-sandbox',
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--disable-extensions',
+            '--disable-popup-blocking',
+            '--disable-notifications',
+            # 内存相关优化
+            '--single-process',  # 使用单进程模式
+            '--no-zygote',      # 禁用zygote进程
+            '--disable-gpu-sandbox',
+            '--disable-software-rasterizer',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--disable-accelerated-video-decode',
+            # 降低内存使用
+            '--js-flags=--max-old-space-size=2048',
+            '--memory-pressure-off',
+        ]
+    )
+    
+    context = browser.new_context(
+        viewport={'width': 1920, 'height': 1080},
+        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        ignore_https_errors=True,
+        bypass_csp=True,
+        # 优化性能设置
+        java_script_enabled=True,
+        accept_downloads=False,
+        has_touch=False,
+        is_mobile=False,
+        device_scale_factor=1,
+        # 减少内存使用
+        service_workers='block'
+    )
+    
+    return browser, context
+
 def try_click_button(page, button, max_attempts=3):
     """尝试多种方式点击按钮"""
     for attempt in range(max_attempts):
         try:
-            # 1. 尝试常规点击
-            button.click(timeout=30000)
-            return True
-        except Exception as e1:
-            print(f"常规点击失败 (尝试 {attempt + 1}/{max_attempts}): {str(e1)}")
-            
+            # 检查页面是否崩溃
             try:
-                # 2. 尝试使用JavaScript点击
-                page.evaluate("""(element) => {
-                    element.click();
-                    element.dispatchEvent(new MouseEvent('click', {
-                        bubbles: true,
-                        cancelable: true,
-                        view: window
-                    }));
-                }""", button)
-                return True
-            except Exception as e2:
-                print(f"JavaScript点击失败: {str(e2)}")
-                
+                page.evaluate('1')  # 简单的JS执行测试
+            except:
+                print("⚠️ 检测到页面崩溃，尝试恢复...")
+                # 重新加载页面
                 try:
-                    # 3. 尝试移除可能的遮罩层
-                    page.evaluate("""() => {
-                        const overlays = document.querySelectorAll('[class*="overlay"], [class*="mask"], [class*="modal"], [class*="dialog"]');
-                        overlays.forEach(overlay => overlay.remove());
-                        
-                        // 移除可能影响点击的样式
-                        const elements = document.querySelectorAll('*');
-                        elements.forEach(el => {
-                            if (window.getComputedStyle(el).pointerEvents === 'none') {
-                                el.style.pointerEvents = 'auto';
-                            }
-                            if (window.getComputedStyle(el).zIndex > 1000) {
-                                el.style.zIndex = '0';
-                            }
-                        });
-                    }""")
-                    
-                    # 再次尝试点击
-                    button.click(timeout=30000)
+                    current_url = page.url
+                    page.reload(timeout=30000, wait_until='domcontentloaded')
+                    # 重新获取按钮
+                    button = page.wait_for_selector('button:has-text("发布")', 
+                                                  state='visible',
+                                                  timeout=30000)
+                    if not button:
+                        raise Exception("无法重新获取发布按钮")
+                except Exception as e:
+                    print(f"❌ 页面恢复失败: {str(e)}")
+                    return False
+            
+            print(f"\n第 {attempt + 1} 次尝试点击:")
+            
+            # 1. 检查按钮状态
+            button_info = page.evaluate("""(element) => {
+                const style = window.getComputedStyle(element);
+                const rect = element.getBoundingClientRect();
+                return {
+                    visible: style.display !== 'none' && style.visibility !== 'hidden',
+                    enabled: !element.disabled,
+                    position: {
+                        x: rect.x,
+                        y: rect.y,
+                        width: rect.width,
+                        height: rect.height
+                    }
+                };
+            }""", button)
+            
+            print(f"按钮状态: {json.dumps(button_info, indent=2)}")
+            
+            # 2. 尝试常规点击
+            try:
+                button.click(timeout=30000, force=True)
+                print("✅ 常规点击成功")
+                return True
+            except Exception as e1:
+                print(f"常规点击失败: {str(e1)}")
+                
+                # 3. 尝试使用position点击
+                try:
+                    pos = button_info['position']
+                    page.mouse.click(pos['x'] + pos['width']/2, pos['y'] + pos['height']/2)
+                    print("✅ 位置点击成功")
                     return True
-                except Exception as e3:
-                    print(f"移除遮罩后点击失败: {str(e3)}")
+                except Exception as e2:
+                    print(f"位置点击失败: {str(e2)}")
                     
-                    if attempt < max_attempts - 1:
-                        print("等待2秒后重试...")
-                        time.sleep(2)
-                        continue
+                    # 4. 尝试JavaScript点击
+                    try:
+                        page.evaluate("""(element) => {
+                            element.click();
+                            element.dispatchEvent(new MouseEvent('click', {
+                                bubbles: true,
+                                cancelable: true,
+                                view: window
+                            }));
+                        }""", button)
+                        print("✅ JavaScript点击成功")
+                        return True
+                    except Exception as e3:
+                        print(f"JavaScript点击失败: {str(e3)}")
+                        
+                        # 5. 尝试移除遮罩并点击
+                        try:
+                            page.evaluate("""() => {
+                                // 移除遮罩
+                                const overlays = document.querySelectorAll('[class*="overlay"], [class*="mask"], [class*="modal"], [class*="dialog"]');
+                                overlays.forEach(overlay => overlay.remove());
+                                
+                                // 修复样式
+                                const elements = document.querySelectorAll('*');
+                                elements.forEach(el => {
+                                    if (window.getComputedStyle(el).pointerEvents === 'none') {
+                                        el.style.pointerEvents = 'auto';
+                                    }
+                                    if (window.getComputedStyle(el).zIndex > 1000) {
+                                        el.style.zIndex = '0';
+                                    }
+                                });
+                            }""")
+                            
+                            button.click(timeout=30000, force=True)
+                            print("✅ 移除遮罩后点击成功")
+                            return True
+                        except Exception as e4:
+                            print(f"移除遮罩后点击失败: {str(e4)}")
+            
+            if attempt < max_attempts - 1:
+                print(f"\n等待3秒后进行第 {attempt + 2} 次尝试...")
+                time.sleep(3)
+                
+                # 保存当前状态
+                try:
+                    page.screenshot(path=f'douyin_click_attempt_{attempt + 1}.png')
+                    with open(f'douyin_click_attempt_{attempt + 1}.html', 'w', encoding='utf-8') as f:
+                        f.write(page.content())
+                except:
+                    pass
+                    
+        except Exception as e:
+            print(f"尝试过程出错: {str(e)}")
+            if attempt < max_attempts - 1:
+                print(f"\n等待3秒后重试...")
+                time.sleep(3)
     
     return False
 
@@ -1133,7 +1248,7 @@ def handle_publish(page):
                 pass
                 
             return False
-        
+            
         print("✅ 点击发布按钮成功")
         
         # 等待页面发生变化
