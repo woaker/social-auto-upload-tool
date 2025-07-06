@@ -118,7 +118,24 @@ class DouYinVideo(object):
             "--disable-ipc-flooding-protection",
             "--no-first-run",
             "--no-default-browser-check",
-            "--disable-default-apps"
+            "--disable-default-apps",
+            # 添加新的优化参数
+            "--disable-extensions",  # 禁用扩展
+            "--disable-popup-blocking",  # 禁用弹窗拦截
+            "--ignore-certificate-errors",  # 忽略证书错误
+            "--no-zygote",  # 禁用zygote进程
+            "--disable-setuid-sandbox",  # 禁用setuid沙箱
+            "--disable-accelerated-2d-canvas",  # 禁用加速2D画布
+            "--disable-accelerated-jpeg-decoding",  # 禁用加速JPEG解码
+            "--disable-accelerated-video-decode",  # 禁用加速视频解码
+            "--disable-gpu-sandbox",  # 禁用GPU沙箱
+            "--disable-software-rasterizer",  # 禁用软件光栅化器
+            "--force-gpu-mem-available-mb=1024",  # 强制GPU内存
+            "--no-experiments",  # 禁用实验性功能
+            "--disable-dev-tools",  # 禁用开发者工具
+            "--disable-logging",  # 禁用日志
+            "--disable-breakpad",  # 禁用崩溃报告
+            "--disable-component-extensions-with-background-pages"  # 禁用带有后台页面的组件扩展
         ])
         
         if self.local_executable_path:
@@ -185,16 +202,28 @@ class DouYinVideo(object):
             
             while retry_count < max_retries:
                 try:
+                    # 修改等待策略和超时时间
                     await page.goto("https://creator.douyin.com/creator-micro/content/upload", 
-                                wait_until="networkidle", timeout=60000)  # 等待网络空闲
-                    break
+                                wait_until="domcontentloaded", timeout=120000)  # 增加到120秒并改用domcontentloaded
+                    
+                    # 等待页面加载完成的关键元素
+                    try:
+                        await page.wait_for_selector("input[type='file'], .upload-btn input, .semi-upload input", 
+                                                 timeout=30000,
+                                                 state="attached")
+                        break
+                    except Exception as e:
+                        douyin_logger.warning(f"等待上传按钮超时，准备重试: {str(e)}")
+                        raise e
+                        
                 except Exception as e:
                     retry_count += 1
                     if retry_count == max_retries:
                         douyin_logger.error(f"访问抖音创作者中心失败: {str(e)}")
                         raise
                     douyin_logger.warning(f"第{retry_count}次重试访问抖音创作者中心...")
-                    await asyncio.sleep(5)  # 等待5秒后重试
+                    # 增加重试等待时间
+                    await asyncio.sleep(10 * retry_count)  # 递增等待时间：10秒、20秒、30秒
             
             # 检查是否在登录页面
             if await page.get_by_text('手机号登录').count() > 0 or await page.get_by_text('扫码登录').count() > 0:
