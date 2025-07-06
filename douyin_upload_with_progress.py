@@ -112,7 +112,7 @@ class ProgressUploader:
 async def main():
     """主函数"""
     # 配置信息
-    video_dir = Path("./videoFile/2025-06-28")
+    video_dir = Path("./videoFile/2025-07-03")
     account_file = "douyin_account.json"
     
     # 查找视频文件
