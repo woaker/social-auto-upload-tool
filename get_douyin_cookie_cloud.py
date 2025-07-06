@@ -231,9 +231,9 @@ def get_douyin_cookie_cloud():
                         # 创建二维码实例
                         qr = qrcode.QRCode(
                             version=1,  # 使用最小的版本
-                            error_correction=qrcode.constants.ERROR_CORRECT_L,
+                            error_correction=qrcode.constants.ERROR_CORRECT_M,  # 提高纠错级别
                             box_size=1,
-                            border=0  # 移除边框
+                            border=1  # 保留边框以确保可扫描
                         )
                         qr.add_data(qr_bytes)
                         qr.make(fit=True)
@@ -245,9 +245,9 @@ def get_douyin_cookie_cloud():
                         original_width = len(matrix[0])
                         original_height = len(matrix)
                         
-                        # 目标尺寸（终端中的字符数）- 使用更小的尺寸
-                        target_width = 30  # 更小的宽度
-                        target_height = 30  # 更小的高度
+                        # 保持目标尺寸
+                        target_width = 30
+                        target_height = 30
                         
                         # 计算缩放因子
                         scale_x = target_width / original_width
@@ -259,31 +259,16 @@ def get_douyin_cookie_cloud():
                         print('3. 点击右上角"扫一扫"')
                         print("4. 扫描下面的二维码：\n")
                         
-                        # 使用更紧凑的显示方式
-                        for y in range(0, target_height, 2):  # 每次处理两行
+                        # 使用简单的字符显示二维码
+                        for y in range(target_height):
                             line = ""
                             for x in range(target_width):
-                                # 获取上下两个像素
-                                top_pixel = False
-                                bottom_pixel = False
-                                
-                                # 上半部分像素
+                                # 映射回原始坐标
                                 orig_x = min(int(x / scale_x), original_width - 1)
                                 orig_y = min(int(y / scale_y), original_height - 1)
-                                top_pixel = matrix[orig_y][orig_x]
-                                
-                                # 下半部分像素（如果存在）
-                                if y + 1 < target_height:
-                                    orig_y = min(int((y + 1) / scale_y), original_height - 1)
-                                    bottom_pixel = matrix[orig_y][orig_x]
-                                
-                                # 使用不同的字符表示不同的组合
-                                if top_pixel and bottom_pixel:
+                                # 使用最基本的字符
+                                if matrix[orig_y][orig_x]:
                                     line += "█"
-                                elif top_pixel:
-                                    line += "▀"
-                                elif bottom_pixel:
-                                    line += "▄"
                                 else:
                                     line += " "
                             print(line)
