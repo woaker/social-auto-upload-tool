@@ -647,10 +647,45 @@ def save_cookies(cookies):
 def check_login(page):
     """检查是否已登录"""
     try:
-        # 检查是否存在上传按钮
-        upload_btn = page.query_selector('.upload-btn')
-        return upload_btn is not None
-    except:
+        print("🔍 检查登录状态...")
+        
+        # 等待页面加载完成
+        page.wait_for_load_state('networkidle')
+        
+        # 检查多个可能的登录状态指标
+        login_indicators = [
+            # 未登录的标志
+            {
+                'selector': 'text=扫码登录',
+                'text': ['扫码登录', '手机号登录'],
+                'expect_visible': False
+            },
+            # 已登录的标志
+            {
+                'selector': '.upload-btn, button:has-text("发布"), .semi-button:has-text("发布视频")',
+                'expect_visible': True
+            }
+        ]
+        
+        # 检查未登录标志
+        for text in login_indicators[0]['text']:
+            if page.get_by_text(text).count() > 0:
+                print(f"❌ 发现未登录标志: {text}")
+                return False
+                
+        # 检查已登录标志
+        try:
+            upload_btn = page.wait_for_selector(login_indicators[1]['selector'], timeout=5000)
+            if upload_btn:
+                print("✅ 已找到上传按钮，登录状态有效")
+                return True
+        except:
+            print("❌ 未找到上传按钮")
+            return False
+            
+        return False
+    except Exception as e:
+        print(f"❌ 检查登录状态时出错: {str(e)}")
         return False
 
 def handle_login(page):
@@ -658,40 +693,59 @@ def handle_login(page):
     try:
         print("🔄 等待登录...")
         
-        # 等待扫码登录按钮出现
-        qr_btn = page.wait_for_selector('text=扫码登录', timeout=10000)
-        if qr_btn:
-            qr_btn.click()
-            print("📱 请使用抖音APP扫描二维码登录")
-            
-            # 等待登录完成
-            page.wait_for_selector('.upload-btn', timeout=300000)  # 5分钟超时
-            print("✅ 登录成功！")
-            
-            # 保存cookies
-            cookies = page.context.cookies()
-            save_cookies(cookies)
+        # 首先检查是否已经登录
+        if check_login(page):
+            print("✅ 已经处于登录状态")
             return True
+            
+        # 如果未登录，等待扫码登录按钮
+        try:
+            qr_btn = page.wait_for_selector('text=扫码登录', timeout=10000)
+            if qr_btn:
+                qr_btn.click()
+                print("📱 请使用抖音APP扫描二维码登录")
+                
+                # 等待登录完成
+                max_wait = 300  # 5分钟超时
+                start_time = time.time()
+                
+                while time.time() - start_time < max_wait:
+                    if check_login(page):
+                        print("✅ 登录成功！")
+                        # 保存cookies
+                        cookies = page.context.cookies()
+                        save_cookies(cookies)
+                        return True
+                    time.sleep(2)
+                    
+                print("❌ 登录等待超时")
+                return False
+        except Exception as e:
+            print(f"❌ 等待登录按钮时出错: {str(e)}")
+            return False
+            
     except Exception as e:
-        print(f"❌ 登录失败: {str(e)}")
+        print(f"❌ 登录过程出错: {str(e)}")
         return False
 
 def upload_to_douyin(video_file):
     """上传视频到抖音"""
     try:
         with sync_playwright() as p:
-            # 启动 Firefox
-            browser = p.firefox.launch(
+            # 启动浏览器
+            browser = p.chromium.launch(
                 headless=True,
                 args=[
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-web-security'
                 ]
             )
             
             context = browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/91.0'
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             )
             
             # 加载cookies
@@ -700,24 +754,27 @@ def upload_to_douyin(video_file):
                 context.add_cookies(cookies)
             
             page = context.new_page()
-            page.set_default_timeout(60000)  # 60秒超时
+            page.set_default_timeout(60000)
             
             try:
-                # 打开抖音创作者平台
-                page.goto('https://creator.douyin.com/')
+                print("🌐 访问抖音创作者平台...")
+                # 访问创作者平台
+                page.goto('https://creator.douyin.com/creator-micro/content/upload')
                 
                 # 检查登录状态
                 if not check_login(page):
+                    print("⚠️ 需要重新登录")
                     if not handle_login(page):
+                        print("❌ 登录失败")
                         return False
                 
                 print("📤 开始上传视频...")
                 
-                # 点击上传按钮
-                page.click('.upload-btn')
-                
-                # 等待上传对话框出现
+                # 等待上传按钮出现
                 upload_input = page.wait_for_selector('input[type="file"]', timeout=30000)
+                if not upload_input:
+                    print("❌ 未找到上传按钮")
+                    return False
                 
                 # 上传视频
                 upload_input.set_input_files(video_file)
