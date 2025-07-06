@@ -6,6 +6,7 @@ import os
 import asyncio
 import time
 from playwright.sync_api import sync_playwright
+import json
 
 from config import LOCAL_CHROME_PATH
 from utils.base_social_media import set_init_script
@@ -556,6 +557,61 @@ class DouYinVideo(object):
             await self.upload(playwright)
 
 
+def load_cookies():
+    """加载cookies"""
+    try:
+        cookie_file = os.path.join('cookies', 'douyin_uploader', 'douyin_cookies.json')
+        if os.path.exists(cookie_file):
+            with open(cookie_file, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"❌ 加载cookies失败: {str(e)}")
+    return None
+
+def save_cookies(cookies):
+    """保存cookies"""
+    try:
+        cookie_dir = os.path.join('cookies', 'douyin_uploader')
+        os.makedirs(cookie_dir, exist_ok=True)
+        cookie_file = os.path.join(cookie_dir, 'douyin_cookies.json')
+        with open(cookie_file, 'w') as f:
+            json.dump(cookies, f)
+        print("✅ cookies保存成功")
+    except Exception as e:
+        print(f"❌ 保存cookies失败: {str(e)}")
+
+def check_login(page):
+    """检查是否已登录"""
+    try:
+        # 检查是否存在上传按钮
+        upload_btn = page.query_selector('.upload-btn')
+        return upload_btn is not None
+    except:
+        return False
+
+def handle_login(page):
+    """处理登录流程"""
+    try:
+        print("🔄 等待登录...")
+        
+        # 等待扫码登录按钮出现
+        qr_btn = page.wait_for_selector('text=扫码登录', timeout=10000)
+        if qr_btn:
+            qr_btn.click()
+            print("📱 请使用抖音APP扫描二维码登录")
+            
+            # 等待登录完成
+            page.wait_for_selector('.upload-btn', timeout=300000)  # 5分钟超时
+            print("✅ 登录成功！")
+            
+            # 保存cookies
+            cookies = page.context.cookies()
+            save_cookies(cookies)
+            return True
+    except Exception as e:
+        print(f"❌ 登录失败: {str(e)}")
+        return False
+
 def upload_to_douyin(video_file):
     """上传视频到抖音"""
     try:
@@ -574,6 +630,11 @@ def upload_to_douyin(video_file):
                 user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/91.0'
             )
             
+            # 加载cookies
+            cookies = load_cookies()
+            if cookies:
+                context.add_cookies(cookies)
+            
             page = context.new_page()
             page.set_default_timeout(60000)  # 60秒超时
             
@@ -581,8 +642,12 @@ def upload_to_douyin(video_file):
                 # 打开抖音创作者平台
                 page.goto('https://creator.douyin.com/')
                 
-                # 等待登录完成
-                page.wait_for_selector('.upload-btn', timeout=300000)  # 5分钟超时
+                # 检查登录状态
+                if not check_login(page):
+                    if not handle_login(page):
+                        return False
+                
+                print("📤 开始上传视频...")
                 
                 # 点击上传按钮
                 page.click('.upload-btn')
