@@ -168,7 +168,7 @@ async def main():
     video_file = "./videoFile/2025-06-09/demo.mp4"  # 修改为实际视频路径
     title = "测试视频上传"
     tags = ["测试", "自动化", "抖音"]
-    account_file = "douyin_account.json"
+    account_file = "cookiesFile/douyin_account.json"
     
     # 检查文件是否存在
     if not Path(video_file).exists():

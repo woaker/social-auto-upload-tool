@@ -14,7 +14,7 @@ from playwright.async_api import async_playwright
 from douyin_config import get_browser_config, get_context_config, get_anti_detection_script
 
 class DouYinAdvancedTester:
-    def __init__(self, cookie_file="douyin_account.json"):
+    def __init__(self, cookie_file="cookiesFile/douyin_account.json"):
         self.cookie_file = cookie_file
         self.strategies = [
             self._strategy_slow_human,

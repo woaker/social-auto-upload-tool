@@ -13,7 +13,7 @@ from playwright.async_api import async_playwright
 from douyin_config import get_browser_config, get_context_config, get_anti_detection_script, print_environment_info
 
 # 配置信息
-DOUYIN_COOKIE_FILE = "douyin_account.json"
+DOUYIN_COOKIE_FILE = "cookiesFile/douyin_account.json"
 DOUYIN_URL = "https://creator.douyin.com/"
 
 # 代理配置（来自notepad）
