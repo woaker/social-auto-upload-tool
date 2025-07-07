@@ -17,6 +17,7 @@ async def get_douyin_cookie_local():
     cookies_dir = current_dir / "cookiesFile"
     cookies_dir.mkdir(exist_ok=True)
     
+    # 统一使用cookiesFile目录
     cookie_file = cookies_dir / "douyin_account.json"
     
     async with async_playwright() as p:

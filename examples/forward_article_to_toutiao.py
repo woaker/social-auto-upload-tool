@@ -1597,7 +1597,7 @@ class EnhancedArticleForwarder:
             print(f"❌ 文章发布失败: {e}")
             return False
 
-async def forward_article_from_url(url, account_file="cookies/toutiao_uploader/account.json", save_file=True):
+async def forward_article_from_url(url, account_file="cookiesFile/toutiao_account.json", save_file=True):
     """从URL转发文章到今日头条"""
     print("🔗 增强版文章链接转发工具 v2.1")
     print("=" * 60)
@@ -1665,7 +1665,7 @@ def main():
     
     parser = argparse.ArgumentParser(description='增强版文章链接转发到今日头条工具 v3.0 (wechatSync风格)')
     parser.add_argument('url', help='要转发的文章链接')
-    parser.add_argument('--account', default='cookies/toutiao_uploader/account.json', help='账号cookie文件路径')
+    parser.add_argument('--account', default='cookiesFile/toutiao_account.json', help='账号cookie文件路径')
     parser.add_argument('--no-save', action='store_true', help='不保存文章到本地文件')
     parser.add_argument('--preview', action='store_true', help='仅预览格式化效果，不发布到头条')
     

@@ -23,7 +23,7 @@ async def main():
     print("=" * 50)
     
     # 账号文件路径 - 使用正确的路径
-    account_file = "cookies/toutiao_uploader/account.json"
+    account_file = "cookiesFile/toutiao_account.json"
     
     # 检查登录状态
     if not await toutiao_setup(account_file):

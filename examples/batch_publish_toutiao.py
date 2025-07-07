@@ -243,7 +243,7 @@ def main():
     parser = argparse.ArgumentParser(description='今日头条批量文章发布工具')
     parser.add_argument('directory', help='包含markdown文件的目录路径')
     parser.add_argument('--delay', type=int, default=60, help='文章发布间隔时间（秒），默认60秒')
-    parser.add_argument('--account', default='cookies/toutiao_uploader/account.json', help='账号cookie文件路径')
+    parser.add_argument('--account', default='cookiesFile/toutiao_account.json', help='账号cookie文件路径')
     
     args = parser.parse_args()
     

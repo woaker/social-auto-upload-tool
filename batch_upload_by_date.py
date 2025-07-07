@@ -102,40 +102,68 @@ class BatchUploader:
     
     def _match_account_files(self):
         """动态匹配每个平台的账号文件"""
-        # 获取所有JSON文件
-        json_files = list(self.cookies_dir.glob("*.json"))
+        # 首先检查新的cookie目录结构
+        cookies_base = self.base_dir / "cookies"
+        
+        # 平台特定的cookie文件路径
+        platform_paths = {
+            'douyin': self.cookies_dir / "douyin_account.json",
+            'bilibili': self.cookies_dir / "32b2189f-8ea6-41b8-b48d-395894ae01ed.json",
+            'kuaishou': self.cookies_dir / "a7b72f5a-4689-11f0-87bd-82265ec8d59d.json",
+            'xiaohongshu': self.cookies_dir / "ebd39c7e-4688-11f0-87bd-82265ec8d59d.json",
+            'baijiahao': self.cookies_dir / "ee7a766a-d8b1-4d48-a9d9-4ce6e154ad8a.json"
+        }
         
         for platform, config in self.platforms.items():
+            # 检查新路径
+            if platform in platform_paths:
+                new_path = platform_paths[platform]
+                if new_path.exists():
+                    config['account_file'] = new_path
+                    print(f"✅ {config['name']} 匹配到账号文件: {new_path}")
+                    continue
+            
+            # 如果新路径不存在，尝试在旧目录中查找
             matched_file = None
             
-            for json_file in json_files:
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                    
-                    # 检查cookies中的domain是否匹配
-                    if 'cookies' in data:
-                        for cookie in data['cookies']:
-                            domain = cookie.get('domain', '').lstrip('.')
-                            for platform_domain in config['domains']:
-                                if platform_domain in domain:
-                                    matched_file = json_file
-                                    break
-                            if matched_file:
-                                break
-                    
-                    if matched_file:
-                        break
+            # 检查特定的文件名
+            if platform == 'douyin':
+                douyin_account = self.cookies_dir / "douyin_account.json"
+                if douyin_account.exists():
+                    matched_file = douyin_account
+            
+            # 如果没有找到特定文件，尝试在旧目录中查找
+            if not matched_file:
+                json_files = list(self.cookies_dir.glob("*.json"))
+                
+                for json_file in json_files:
+                    try:
+                        with open(json_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
                         
-                except Exception as e:
-                    print(f"⚠️  读取文件 {json_file} 失败: {e}")
-                    continue
+                        # 检查cookies中的domain是否匹配
+                        if 'cookies' in data:
+                            for cookie in data['cookies']:
+                                domain = cookie.get('domain', '').lstrip('.')
+                                for platform_domain in config['domains']:
+                                    if platform_domain in domain:
+                                        matched_file = json_file
+                                        break
+                                if matched_file:
+                                    break
+                        
+                        if matched_file:
+                            break
+                            
+                    except Exception as e:
+                        print(f"⚠️  读取文件 {json_file} 失败: {e}")
+                        continue
             
             if matched_file:
                 config['account_file'] = matched_file
                 print(f"✅ {config['name']} 匹配到账号文件: {matched_file.name}")
             else:
-                print(f"❌ {config['name']} 未找到匹配的账号文件")
+                print(f"❌ {config['name']} 未找到账号文件")
 
     def check_date_directory(self):
         """检查日期目录是否存在"""
@@ -228,7 +256,10 @@ class BatchUploader:
         publish_datetimes = self.get_publish_schedule(file_num)
         
         try:
-            cookie_setup = await douyin_setup(account_file, handle=False)
+            cookie_setup = await douyin_setup(account_file, handle=True)
+            if not cookie_setup:
+                print(f"❌ 抖音登录失败")
+                return
         except Exception as e:
             print(f"❌ 抖音登录失败: {e}")
             return
