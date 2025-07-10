@@ -441,8 +441,26 @@ class DouYinVideo(object):
             "--disable-dev-tools",  # 禁用开发者工具
             "--disable-logging",  # 禁用日志
             "--disable-breakpad",  # 禁用崩溃报告
-            "--disable-component-extensions-with-background-pages"  # 禁用带有后台页面的组件扩展
+            "--disable-component-extensions-with-background-pages",  # 禁用带有后台页面的组件扩展
+            # 新增更多稳定性参数
+            "--disable-hang-monitor",  # 禁用挂起监视器
+            "--disable-prompt-on-repost",  # 禁用重新发布提示
+            "--disable-domain-reliability",  # 禁用域可靠性
+            "--disable-renderer-backgrounding",  # 禁用渲染器后台处理
+            "--disable-backgrounding-occluded-windows",  # 禁用遮挡窗口的后台处理
+            "--disable-background-timer-throttling",  # 禁用后台计时器节流
+            "--disable-features=TranslateUI",  # 禁用翻译UI
+            "--disable-features=BlinkGenPropertyTrees",  # 禁用Blink属性树
+            "--disable-features=LazyFrameLoading",  # 禁用延迟帧加载
+            "--disable-features=AutomationControlled",  # 禁用自动化控制标志
+            "--memory-pressure-off",  # 关闭内存压力
+            "--single-process",  # 单进程模式，提高稳定性
+            "--mute-audio",  # 静音，减少资源使用
+            "--disable-speech-api"  # 禁用语音API
         ])
+        
+        # 降低内存使用
+        launch_options["chromium_sandbox"] = False
         
         if self.local_executable_path:
             launch_options["executable_path"] = self.local_executable_path
@@ -461,8 +479,11 @@ class DouYinVideo(object):
             # 使用增强版上下文配置
             context_config = get_context_config()
             context_config["storage_state"] = f"{self.account_file}"
-            context_config["viewport"] = {'width': 1920, 'height': 1080}
+            context_config["viewport"] = {'width': 1280, 'height': 800}  # 减小视窗大小
             context_config["user_agent"] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            context_config["ignore_https_errors"] = True  # 忽略HTTPS错误
+            context_config["bypass_csp"] = True  # 绕过内容安全策略
+            context_config["service_workers"] = "block"  # 阻止Service Workers
             
             douyin_logger.info("🔧 创建浏览器上下文...")
             context = await browser.new_context(**context_config)
@@ -500,6 +521,10 @@ class DouYinVideo(object):
                     configurable: true
                 });
             """)
+            
+            # 设置页面超时
+            page.set_default_timeout(30000)  # 30秒超时
+            page.set_default_navigation_timeout(60000)  # 60秒导航超时
             
             # 访问指定的 URL
             douyin_logger.info("🌐 访问抖音创作者中心...")
@@ -622,7 +647,7 @@ class DouYinVideo(object):
                 await page.press(css_selector, "Space")
             douyin_logger.info(f'总共添加{len(self.tags)}个话题')
 
-            # 等待视频上传完成
+            # 等待视频上传完成 - 改进的上传监控
             upload_timeout = 7200  # 2小时超时
             start_time = time.time()
             upload_success = False
@@ -632,188 +657,134 @@ class DouYinVideo(object):
             max_retry_attempts = 5  # 增加重试次数
             retry_attempt = 0
             last_check_time = time.time()
-            check_interval = 2  # 检查间隔（秒）
+            check_interval = 5  # 增加检查间隔（秒）
+            consecutive_errors = 0  # 连续错误计数
             
-            # 注入监控脚本
+            # 简化的监控脚本，减少复杂性
             await page.evaluate('''() => {
-                window.uploadProgress = {
-                    status: '',
-                    progress: 0,
-                    error: null,
-                    lastUpdate: Date.now()
-                };
+                window.simpleUploadProgress = 0;
                 
-                // 监控XHR请求
-                const originalXHR = window.XMLHttpRequest;
-                window.XMLHttpRequest = function() {
-                    const xhr = new originalXHR();
-                    const originalOpen = xhr.open;
-                    const originalSend = xhr.send;
-                    
-                    xhr.open = function() {
-                        this.addEventListener('progress', (event) => {
-                            if (event.lengthComputable) {
-                                const progress = Math.round((event.loaded / event.total) * 100);
-                                window.uploadProgress.progress = progress;
-                                window.uploadProgress.lastUpdate = Date.now();
-                            }
-                        });
-                        
-                        this.upload?.addEventListener('progress', (event) => {
-                            if (event.lengthComputable) {
-                                const progress = Math.round((event.loaded / event.total) * 100);
-                                window.uploadProgress.progress = progress;
-                                window.uploadProgress.lastUpdate = Date.now();
-                            }
-                        });
-                        
-                        return originalOpen.apply(this, arguments);
-                    };
-                    
-                    xhr.send = function() {
-                        return originalSend.apply(this, arguments);
-                    };
-                    
-                    return xhr;
-                };
-                
-                // 监控Fetch请求
-                const originalFetch = window.fetch;
-                window.fetch = async function() {
+                // 简单的DOM观察器
+                const observer = new MutationObserver(() => {
                     try {
-                        const response = await originalFetch.apply(this, arguments);
-                        if (response.ok) {
-                            window.uploadProgress.lastUpdate = Date.now();
-                        } else {
-                            window.uploadProgress.error = `HTTP ${response.status}`;
+                        // 查找进度元素
+                        const progressElements = document.querySelectorAll('[class*="progress"], [class*="percentage"], [role="progressbar"]');
+                        for (const el of progressElements) {
+                            const text = el.textContent || '';
+                            const match = text.match(/\\d+/);
+                            if (match) {
+                                window.simpleUploadProgress = parseInt(match[0]);
+                                break;
+                            }
+                            
+                            // 检查aria属性
+                            if (el.getAttribute('aria-valuenow')) {
+                                window.simpleUploadProgress = parseInt(el.getAttribute('aria-valuenow'));
+                                break;
+                            }
                         }
-                        return response;
-                    } catch (error) {
-                        window.uploadProgress.error = error.message;
-                        throw error;
+                    } catch (e) {
+                        // 忽略错误
                     }
-                };
-                
-                // 监控网络状态
-                window.addEventListener('online', () => {
-                    window.uploadProgress.status = 'online';
                 });
                 
-                window.addEventListener('offline', () => {
-                    window.uploadProgress.status = 'offline';
-                });
-                
-                // 监控页面可见性
-                document.addEventListener('visibilitychange', () => {
-                    window.uploadProgress.status = document.visibilityState;
+                // 开始观察
+                observer.observe(document.body, { 
+                    childList: true, 
+                    subtree: true, 
+                    attributes: true,
+                    characterData: true
                 });
             }''')
             
-            while time.time() - start_time < upload_timeout and retry_attempt < max_retry_attempts:
+            douyin_logger.info("开始监控上传进度...")
+            
+            while time.time() - start_time < upload_timeout:
                 try:
                     # 控制检查频率
                     current_time = time.time()
                     if current_time - last_check_time < check_interval:
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(1)
                         continue
                     last_check_time = current_time
                     
-                    # 获取上传状态
-                    upload_info = await page.evaluate('window.uploadProgress')
-                    if upload_info:
-                        # 检查进度
-                        if 'progress' in upload_info and upload_info['progress'] > 0:
-                            current_progress = f"{upload_info['progress']}%"
-                            if current_progress != last_progress:
-                                douyin_logger.info(f"📊 上传进度: {current_progress}")
-                                last_progress = current_progress
-                                no_progress_time = time.time()
+                    # 使用简单的方法检查进度
+                    try:
+                        # 使用更简单的方式获取进度
+                        progress = await page.evaluate('window.simpleUploadProgress || 0')
                         
-                        # 检查错误
-                        if upload_info.get('error'):
-                            douyin_logger.error(f"⚠️ 上传错误: {upload_info['error']}")
-                            await page.screenshot(path=f"upload_error_{retry_attempt}.png")
+                        if progress > 0 and progress != last_progress_value:
+                            douyin_logger.info(f"📊 上传进度: {progress}%")
+                            last_progress = f"{progress}%"
+                            last_progress_value = progress
+                            no_progress_time = time.time()
+                            consecutive_errors = 0  # 重置错误计数
                             
-                            # 尝试恢复
-                            try:
-                                # 检查网络状态
-                                network_status = await page.evaluate('''() => {
-                                    return {
-                                        online: navigator.onLine,
-                                        connection: navigator.connection ? {
-                                            type: navigator.connection.effectiveType,
-                                            downlink: navigator.connection.downlink,
-                                            rtt: navigator.connection.rtt
-                                        } : null,
-                                        visibility: document.visibilityState
+                            if progress >= 100:
+                                douyin_logger.info("✅ 上传完成，等待处理...")
+                                await asyncio.sleep(5)  # 等待处理
+                                upload_success = True
+                                break
+                    except Exception as e:
+                        # 使用备用方法检查进度
+                        try:
+                            # 直接从DOM获取进度
+                            progress_text = await page.evaluate('''
+                                () => {
+                                    const els = document.querySelectorAll('[class*="progress"], [class*="percentage"], [role="progressbar"]');
+                                    for (const el of els) {
+                                        const text = el.textContent || '';
+                                        if (text.includes('%')) return text;
+                                        if (el.getAttribute('aria-valuenow')) return el.getAttribute('aria-valuenow') + '%';
                                     }
-                                }''')
-                                douyin_logger.info(f"网络状态: {network_status}")
-                                
-                                if not network_status['online']:
-                                    douyin_logger.warning("⚠️ 网络连接已断开")
-                                    await page.wait_for_function('navigator.onLine', timeout=300000)  # 5分钟
-                                    douyin_logger.info("✅ 网络已恢复")
-                                
-                                # 尝试重试
-                                retry_selectors = [
-                                    'button:has-text("重新上传")',
-                                    'button:has-text("重试")',
-                                    'button:has-text("继续上传")',
-                                    '[class*="reupload"]',
-                                    '[class*="retry"]',
-                                    '[class*="continue"]',
-                                    '[class*="resume"]'
-                                ]
-                                
-                                retry_found = False
-                                for selector in retry_selectors:
-                                    try:
-                                        retry_button = await page.wait_for_selector(selector, timeout=5000)
-                                        if retry_button:
-                                            douyin_logger.info(f"找到重试按钮: {selector}")
-                                            await retry_button.click()
-                                            await asyncio.sleep(2)
-                                            retry_found = True
-                                            break
-                                    except:
-                                        continue
-                                
-                                if not retry_found:
-                                    douyin_logger.info("未找到重试按钮，尝试刷新页面...")
-                                    await page.reload(timeout=60000, wait_until="networkidle")
-                                    await asyncio.sleep(5)
-                                
-                                # 重置状态
-                                await page.evaluate('window.uploadProgress.error = null')
+                                    return null;
+                                }
+                            ''')
+                            
+                            if progress_text and progress_text != last_progress:
+                                douyin_logger.info(f"📊 上传进度: {progress_text}")
+                                last_progress = progress_text
                                 no_progress_time = time.time()
-                                retry_attempt += 1
-                                
-                            except Exception as e:
-                                douyin_logger.error(f"恢复失败: {str(e)}")
-                                await page.screenshot(path=f"recovery_error_{retry_attempt}.png")
-                                retry_attempt += 1
-                                continue
-                        
-                        # 检查成功状态
+                                consecutive_errors = 0
+                        except:
+                            pass
+                    
+                    # 检查是否上传完成
+                    if not upload_success:
                         success_indicators = [
-                            'text="上传完成"',
-                            'text="已发布"',
-                            '[class*="success"]',
-                            '.upload-success'
+                            '[class^="long-card"] div:has-text("重新上传")',
+                            '[class*="upload-success"]',
+                            '[class*="complete"]',
+                            '.video-card:visible',
+                            'div:has-text("上传成功")',
+                            'div:has-text("发布")',
+                            'button:has-text("发布")',
+                            '.semi-button:has-text("发布")',
+                            '.upload-complete',
+                            '.success-icon'
                         ]
                         
                         for indicator in success_indicators:
                             try:
                                 if await page.locator(indicator).count() > 0:
-                                    douyin_logger.info(f"✅ 检测到成功标志: {indicator}")
+                                    douyin_logger.success(f"✅ 检测到上传成功标志: {indicator}")
                                     upload_success = True
                                     break
                             except:
                                 continue
-                        
-                        if upload_success:
-                            break
+                    
+                    # 检查是否有发布按钮
+                    if not upload_success:
+                        try:
+                            publish_button = page.get_by_role('button', name="发布", exact=True)
+                            if await publish_button.count() and await publish_button.is_enabled():
+                                douyin_logger.success("✅ 发布按钮可用，上传确实完成")
+                                upload_success = True
+                        except:
+                            pass
+                    
+                    if upload_success:
+                        break
                     
                     # 检查是否长时间无响应
                     if time.time() - no_progress_time > 180:  # 3分钟无响应
@@ -821,55 +792,30 @@ class DouYinVideo(object):
                         await page.screenshot(path=f"no_response_{retry_attempt}.png")
                         
                         try:
-                            await page.reload(timeout=60000, wait_until="networkidle")
+                            # 使用更安全的刷新方法
+                            await page.evaluate('() => { location.reload(); }')
+                            await page.wait_for_load_state('domcontentloaded', timeout=60000)
                             await asyncio.sleep(5)
                             no_progress_time = time.time()
                         except Exception as e:
                             douyin_logger.error(f"刷新页面失败: {str(e)}")
                             retry_attempt += 1
-                            continue
-                    
-                    # 检查是否上传完成
-                    success_indicators = [
-                        '[class^="long-card"] div:has-text("重新上传")',
-                        '[class*="upload-success"]',
-                        '[class*="complete"]',
-                        '.video-card:visible',
-                        'div:has-text("上传成功")',
-                        'div:has-text("发布")',
-                        'button:has-text("发布")',
-                        '.semi-button:has-text("发布")',
-                        '.upload-complete',
-                        '.success-icon'
-                    ]
-                    
-                    for indicator in success_indicators:
-                        try:
-                            if await page.locator(indicator).count() > 0:
-                                douyin_logger.success(f"✅ 检测到上传成功标志: {indicator}")
-                                # 再次验证发布按钮是否真的可用
-                                if "发布" in indicator:
-                                    publish_button = page.get_by_role('button', name="发布", exact=True)
-                                    if await publish_button.count() and await publish_button.is_enabled():
-                                        douyin_logger.success("✅ 发布按钮可用，上传确实完成")
-                                        upload_success = True
-                                        break
-                                else:
-                                    upload_success = True
-                                    break
-                        except:
-                            continue
-                    
-                    if upload_success:
-                        # 最终验证：等待5秒后再次检查
-                        await asyncio.sleep(5)
-                        if await page.get_by_role('button', name="发布", exact=True).count() > 0:
-                            douyin_logger.success("✅ 最终验证通过，视频确实上传完成")
-                            await page.screenshot(path="upload_success.png")
-                            break
-                        else:
-                            upload_success = False
-                            douyin_logger.warning("⚠️ 最终验证失败，继续等待")
+                            
+                            if retry_attempt >= max_retry_attempts:
+                                raise Exception("超过最大重试次数")
+                                
+                            # 尝试重新创建页面
+                            try:
+                                douyin_logger.info("尝试重新创建页面...")
+                                await page.close()
+                                page = await context.new_page()
+                                await page.goto("https://creator.douyin.com/creator-micro/content/upload", 
+                                            wait_until="domcontentloaded", timeout=60000)
+                                await asyncio.sleep(5)
+                                no_progress_time = time.time()
+                            except Exception as e2:
+                                douyin_logger.error(f"重新创建页面失败: {str(e2)}")
+                                raise Exception("无法恢复浏览器会话")
                     
                     # 检查是否上传失败
                     error_indicators = [
@@ -886,34 +832,77 @@ class DouYinVideo(object):
                     ]
                     
                     for indicator in error_indicators:
-                        if await page.locator(indicator).count() > 0:
-                            error_text = await page.locator(indicator).text_content()
-                            douyin_logger.error(f"❌ 检测到上传失败: {error_text}")
-                            await page.screenshot(path=f"upload_error_{retry_attempt}.png")
-                            
-                            # 如果是格式/大小/时长问题，直接失败
-                            if any(x in error_text for x in ["格式不支持", "大小超过限制", "时长超过限制"]):
-                                raise Exception(f"视频不符合要求: {error_text}")
-                            
-                            # 否则尝试重新上传
-                            await self.handle_upload_error(page)
-                            await asyncio.sleep(5)  # 等待重新上传开始
-                            no_progress_time = time.time()  # 重置进度检查时间
-                            retry_attempt += 1
-                            break
-                    
-                    # 每30秒保存一次截图，用于调试
-                    if int(time.time() - start_time) % 30 == 0:
-                        await page.screenshot(path=f"upload_progress_{int(time.time())}.png")
-                    
-                    douyin_logger.info("⏳ 视频上传中...")
-                    await asyncio.sleep(2)
+                        try:
+                            if await page.locator(indicator).count() > 0:
+                                error_text = await page.locator(indicator).text_content()
+                                douyin_logger.error(f"❌ 检测到上传失败: {error_text}")
+                                await page.screenshot(path=f"upload_error_{retry_attempt}.png")
+                                
+                                # 如果是格式/大小/时长问题，直接失败
+                                if any(x in error_text for x in ["格式不支持", "大小超过限制", "时长超过限制"]):
+                                    raise Exception(f"视频不符合要求: {error_text}")
+                                
+                                # 否则尝试重新上传
+                                await self.handle_upload_error(page)
+                                await asyncio.sleep(5)  # 等待重新上传开始
+                                no_progress_time = time.time()  # 重置进度检查时间
+                                retry_attempt += 1
+                                break
+                        except:
+                            continue
                     
                 except Exception as e:
-                    douyin_logger.warning(f"检查上传状态时出错: {str(e)}")
-                    await page.screenshot(path=f"upload_check_error_{retry_attempt}_{int(time.time())}.png")
-                    retry_attempt += 1
-                    await asyncio.sleep(5)
+                    consecutive_errors += 1
+                    douyin_logger.warning(f"监控进度时出错: {str(e)}")
+                    
+                    # 如果连续错误过多，尝试恢复
+                    if consecutive_errors >= 5:
+                        douyin_logger.warning("⚠️ 检测到连续错误，正在保存错误现场...")
+                        try:
+                            await page.screenshot(path=f"monitor_error_{retry_attempt}.png")
+                            with open(f"monitor_error_{retry_attempt}.html", "w", encoding="utf-8") as f:
+                                f.write(await page.content())
+                        except:
+                            pass
+                        
+                        # 尝试重新加载页面
+                        try:
+                            douyin_logger.info("尝试重新加载页面...")
+                            await page.evaluate('() => { location.reload(); }')
+                            await page.wait_for_load_state('domcontentloaded', timeout=60000)
+                            await asyncio.sleep(5)
+                            consecutive_errors = 0
+                            no_progress_time = time.time()
+                        except Exception as reload_error:
+                            douyin_logger.error(f"重新加载页面失败: {str(reload_error)}")
+                            retry_attempt += 1
+                            
+                            if retry_attempt >= max_retry_attempts:
+                                raise Exception("超过最大重试次数")
+                            
+                            # 尝试重新创建页面
+                            try:
+                                douyin_logger.info("尝试重新创建页面...")
+                                await page.close()
+                                page = await context.new_page()
+                                await page.goto("https://creator.douyin.com/creator-micro/content/upload", 
+                                            wait_until="domcontentloaded", timeout=60000)
+                                await asyncio.sleep(5)
+                                consecutive_errors = 0
+                                no_progress_time = time.time()
+                            except:
+                                raise Exception("无法恢复浏览器会话")
+                    
+                    await asyncio.sleep(2)
+                
+                # 每隔一段时间保存一次截图
+                if int(time.time() - start_time) % 60 == 0:  # 每分钟保存一次
+                    try:
+                        await page.screenshot(path=f"upload_progress_{int(time.time())}.png")
+                    except:
+                        pass
+                
+                await asyncio.sleep(1)
             
             if not upload_success:
                 if retry_attempt >= max_retry_attempts:
@@ -948,111 +937,20 @@ class DouYinVideo(object):
                 if not field_value:
                     raise Exception(f"发布失败：{field_name}不能为空")
             
-            # 判断视频是否发布成功
-            max_publish_attempts = 3
-            publish_attempt = 0
-            
-            while publish_attempt < max_publish_attempts:
-                try:
-                    # 等待发布按钮可用
-                    douyin_logger.info("等待发布按钮可用...")
-                    publish_button = page.get_by_role('button', name="发布", exact=True)
-                    
-                    if await publish_button.count():
-                        # 检查按钮是否可点击
-                        is_enabled = await publish_button.is_enabled()
-                        button_class = await publish_button.get_attribute("class")
-                        button_disabled = "disabled" in (button_class or "")
-                        
-                        if not is_enabled or button_disabled:
-                            douyin_logger.warning("发布按钮未启用，等待中...")
-                            await asyncio.sleep(5)  # 增加等待时间
-                            continue
-                        
-                        # 点击发布按钮前截图
-                        await page.screenshot(path=f"before_publish_{publish_attempt}.png")
-                        
-                        # 点击发布按钮
-                        douyin_logger.info(f"尝试点击发布按钮 (第 {publish_attempt + 1} 次)")
-                        await publish_button.click()
-                        await asyncio.sleep(2)  # 等待点击生效
-                        
-                        # 检查是否有确认弹窗
-                        confirm_button = page.get_by_role('button', name="确认")
-                        if await confirm_button.count() > 0:
-                            douyin_logger.info("检测到确认弹窗，点击确认")
-                            await confirm_button.click()
-                        
-                        # 等待页面跳转
-                        try:
-                            douyin_logger.info("等待页面跳转到作品管理页面...")
-                            await page.wait_for_url(
-                                "https://creator.douyin.com/creator-micro/content/manage**",
-                                timeout=60000  # 增加超时时间到60秒
-                            )
-                            
-                            # 等待页面加载和可能的动画完成
-                            await asyncio.sleep(10)  # 增加等待时间
-                            
-                            # 验证发布成功
-                            success_indicators = [
-                                "发布成功",
-                                "已发布",
-                                "作品管理",
-                                self.title[:10]  # 使用视频标题的前10个字符作为指标
-                            ]
-                            
-                            page_content = await page.content()
-                            success_found = False
-                            
-                            for indicator in success_indicators:
-                                if indicator in page_content:
-                                    douyin_logger.success(f"✅ 检测到成功标志: {indicator}")
-                                    success_found = True
-                                    break
-                            
-                            if success_found:
-                                # 进一步验证：检查作品列表
-                                try:
-                                    await page.reload()  # 刷新页面以确保看到最新内容
-                                    await asyncio.sleep(5)
-                                    
-                                    # 查找最新发布的视频标题
-                                    video_titles = await page.locator('.video-title, .content-title').all_text_contents()
-                                    if any(self.title[:15] in title for title in video_titles):
-                                        douyin_logger.success("✅ 在作品列表中找到新发布的视频！")
-                                        await page.screenshot(path="publish_success_final.png")
-                                        return True
-                                    else:
-                                        douyin_logger.warning("⚠️ 未在作品列表中找到新发布的视频")
-                                except Exception as e:
-                                    douyin_logger.warning(f"检查作品列表时出错: {str(e)}")
-                            
-                            douyin_logger.warning("⚠️ 未检测到明确的发布成功标志")
-                            await page.screenshot(path=f"publish_warning_{publish_attempt}.png")
-                            
-                        except Exception as e:
-                            douyin_logger.error(f"等待页面跳转超时: {str(e)}")
-                            await page.screenshot(path=f"publish_timeout_{publish_attempt}.png")
-                    else:
-                        douyin_logger.warning("未找到发布按钮，重试中...")
-                        await page.screenshot(path=f"no_publish_button_{publish_attempt}.png")
-                        
-                except Exception as e:
-                    douyin_logger.error(f"发布过程出错: {str(e)}")
-                    await page.screenshot(path=f"publish_error_{publish_attempt}.png")
+            # 调用改进的发布处理函数
+            if await self.handle_publish(page):
+                douyin_logger.success("🎉 视频发布成功！")
                 
-                publish_attempt += 1
-                if publish_attempt < max_publish_attempts:
-                    douyin_logger.info(f"等待 10 秒后进行第 {publish_attempt + 1} 次尝试...")
-                    await asyncio.sleep(10)  # 增加重试间隔
-            
-            if publish_attempt >= max_publish_attempts:
-                raise Exception("发布失败：超过最大重试次数")
-
-            await context.storage_state(path=self.account_file)  # 保存cookie
-            douyin_logger.success('  [-]cookie更新完毕！')
-            await asyncio.sleep(2)  # 这里延迟是为了方便眼睛直观的观看
+                # 保存成功状态
+                await page.screenshot(path="douyin_publish_success.png")
+                
+                # 保存cookie
+                await context.storage_state(path=self.account_file)
+                douyin_logger.success('  [-]cookie更新完毕！')
+                return True
+            else:
+                douyin_logger.error("❌ 视频发布失败")
+                return False
             
         except Exception as e:
             douyin_logger.error(f"❌ 上传过程中发生错误: {str(e)}")
