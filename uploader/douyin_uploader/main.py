@@ -1983,187 +1983,185 @@ def try_click_button(page, button, p=None, cookies=None, max_attempts=3):
     
     return False
 
-def handle_publish(page, p=None, cookies=None):
-    """处理发布阶段"""
+async def handle_publish(self, page: Page):
+    """处理发布阶段，包含更强大的错误处理和恢复机制"""
     try:
-        # 等待发布按钮完全可点击
-        publish_button = page.wait_for_selector('button:has-text("发布")', 
-                                              state='visible',
-                                              timeout=30000)
+        douyin_logger.info("准备发布视频...")
         
-        if not publish_button:
-            print("❌ 未找到发布按钮")
-            return False
-            
-        print("✅ 检测到发布按钮")
-        
+        # 等待发布按钮完全可点击，增加等待时间
+        publish_button = None
+        max_wait_attempts = 3
+        for attempt in range(max_wait_attempts):
+            try:
+                publish_button = await page.wait_for_selector(
+                    'button:has-text("发布")', 
+                    state='visible',
+                    timeout=20000
+                )
+                if publish_button:
+                    douyin_logger.info("✅ 找到发布按钮")
+                    break
+            except Exception as e:
+                douyin_logger.warning(f"第 {attempt + 1} 次等待发布按钮失败: {str(e)}")
+                if attempt < max_wait_attempts - 1:
+                    await asyncio.sleep(5)
+                    continue
+                else:
+                    raise Exception("无法找到发布按钮")
+
         # 确保页面稳定
-        time.sleep(3)
+        await asyncio.sleep(3)
         
         # 记录发布前的URL
         pre_publish_url = page.url
         
-        # 尝试点击发布按钮
-        print("尝试点击发布按钮...")
-        if not try_click_button(page, publish_button, p, cookies):
-            print("❌ 所有点击方式都失败了")
-            
-            # 保存失败现场
+        # 尝试点击发布按钮，使用多种方法
+        max_click_attempts = 3
+        for click_attempt in range(max_click_attempts):
             try:
-                page.screenshot(path='douyin_click_error.png')
-                with open('douyin_click_error.html', 'w', encoding='utf-8') as f:
-                    f.write(page.content())
-                print("📸 已保存点击失败现场")
-            except:
-                pass
+                douyin_logger.info(f"第 {click_attempt + 1} 次尝试点击发布按钮")
                 
-            return False
-            
-        print("✅ 点击发布按钮成功")
-        
-        # 等待页面发生变化
-        try:
-            page.wait_for_url(lambda url: url != pre_publish_url, timeout=30000)
-            print("✅ 检测到页面跳转")
-        except:
-            print("⚠️ 页面未发生跳转")
-        
-        # 多轮检查发布状态
-        max_checks = 3
-        check_interval = 5
-        success = False
-        
-        for check_round in range(max_checks):
-            print(f"\n🔄 第 {check_round + 1} 轮状态检查:")
-            
-            # 1. 检查URL
-            current_url = page.url
-            if any(x in current_url for x in ['publish/success', 'video/manage', 'creator/content']):
-                print("✅ URL显示发布成功")
-                success = True
-                break
-            
-            # 2. 检查成功提示
-            success_indicators = [
-                'text=发布成功',
-                'text=已发布',
-                'text=视频已发布',
-                '[class*="success"]',
-                '[class*="published"]',
-                'text=视频正在处理',  # 有些情况下会显示这个
-                'text=视频已上传成功'
-            ]
-            
-            for indicator in success_indicators:
+                # 1. 确保按钮在视图中
+                await publish_button.scroll_into_view_if_needed()
+                await asyncio.sleep(1)
+                
+                # 2. 获取按钮状态和位置
+                button_info = await page.evaluate("""(element) => {
+                    const style = window.getComputedStyle(element);
+                    const rect = element.getBoundingClientRect();
+                    return {
+                        visible: style.display !== 'none' && style.visibility !== 'hidden',
+                        enabled: !element.disabled,
+                        position: {
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: rect.height
+                        }
+                    };
+                }""", publish_button)
+                
+                douyin_logger.info(f"按钮状态: {json.dumps(button_info, indent=2)}")
+                
+                if not button_info['visible'] or not button_info['enabled']:
+                    raise Exception("按钮不可用")
+                
+                # 3. 尝试不同的点击方法
+                click_methods = [
+                    # 方法1: 常规点击
+                    lambda: publish_button.click(timeout=10000, force=True),
+                    
+                    # 方法2: 使用mouse.click
+                    lambda: page.mouse.click(
+                        button_info['position']['x'] + button_info['position']['width']/2,
+                        button_info['position']['y'] + button_info['position']['height']/2
+                    ),
+                    
+                    # 方法3: 使用JavaScript点击
+                    lambda: page.evaluate("""(element) => {
+                        element.click();
+                        element.dispatchEvent(new MouseEvent('click', {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window
+                        }));
+                    }""", publish_button)
+                ]
+                
+                for i, click_method in enumerate(click_methods):
+                    try:
+                        await click_method()
+                        douyin_logger.info(f"点击方法 {i + 1} 成功")
+                        
+                        # 等待页面变化
+                        try:
+                            await page.wait_for_url(
+                                lambda url: url != pre_publish_url,
+                                timeout=10000
+                            )
+                            douyin_logger.info("✅ 检测到页面跳转")
+                            break
+                        except:
+                            douyin_logger.warning("页面未跳转，尝试下一个点击方法")
+                            continue
+                            
+                    except Exception as click_error:
+                        douyin_logger.warning(f"点击方法 {i + 1} 失败: {str(click_error)}")
+                        continue
+                
+                # 检查是否有确认弹窗
                 try:
-                    if page.query_selector(indicator):
-                        print(f"✅ 检测到成功标志: {indicator}")
-                        success = True
-                        break
-                except:
-                    continue
-            
-            if success:
-                break
-            
-            # 3. 检查页面状态
-            try:
-                # 检查是否在视频管理页面
-                if page.query_selector('text=视频管理') or page.query_selector('text=内容管理'):
-                    print("✅ 已进入视频管理页面")
-                    success = True
+                    confirm_button = page.get_by_role('button', name="确认")
+                    if await confirm_button.count() > 0:
+                        douyin_logger.info("检测到确认弹窗，点击确认")
+                        await confirm_button.click()
+                except Exception as e:
+                    douyin_logger.warning(f"处理确认弹窗时出错: {str(e)}")
+                
+                # 等待发布结果
+                success = False
+                max_result_checks = 5
+                for check in range(max_result_checks):
+                    try:
+                        # 检查成功标志
+                        success_selectors = [
+                            'text="发布成功"',
+                            'text="已发布"',
+                            '[class*="success"]',
+                            '.video-card:visible',
+                            'div:has-text("发布成功")',
+                            'div:has-text("已发布")'
+                        ]
+                        
+                        for selector in success_selectors:
+                            try:
+                                if await page.locator(selector).count() > 0:
+                                    douyin_logger.success(f"✅ 检测到发布成功标志: {selector}")
+                                    return True
+                            except:
+                                continue
+                        
+                        # 检查是否在视频管理页面
+                        if "manage" in page.url or "content" in page.url:
+                            douyin_logger.success("✅ 已进入视频管理页面")
+                            return True
+                            
+                        await asyncio.sleep(2)
+                        
+                    except Exception as check_error:
+                        douyin_logger.warning(f"检查发布结果时出错: {str(check_error)}")
+                        if check < max_result_checks - 1:
+                            await asyncio.sleep(2)
+                            continue
+                        else:
+                            raise Exception("无法确认发布结果")
+                
+                if success:
                     break
                     
-                # 检查是否有最新发布的视频
-                recent_videos = page.query_selector_all('[class*="video-item"], [class*="content-item"]')
-                if recent_videos:
-                    print("✅ 检测到视频列表")
-                    success = True
-                    break
-            except:
-                pass
-            
-            # 4. 检查错误提示
-            error_indicators = [
-                'text=发布失败',
-                'text=网络错误',
-                'text=系统繁忙',
-                '[class*="error"]',
-                '[class*="fail"]'
-            ]
-            
-            has_error = False
-            for indicator in error_indicators:
-                try:
-                    error_el = page.query_selector(indicator)
-                    if error_el:
-                        error_text = error_el.text_content()
-                        print(f"❌ 发布失败: {error_text}")
-                        has_error = True
-                        break
-                except:
+            except Exception as attempt_error:
+                douyin_logger.error(f"第 {click_attempt + 1} 次点击尝试失败: {str(attempt_error)}")
+                if click_attempt < max_click_attempts - 1:
+                    douyin_logger.info("等待后重试...")
+                    await asyncio.sleep(5)
                     continue
-            
-            if has_error:
-                return False
-            
-            # 如果还没有明确结果，等待后继续检查
-            if not success and check_round < max_checks - 1:
-                print(f"⏳ 等待 {check_interval} 秒后进行下一轮检查...")
-                time.sleep(check_interval)
-                
-                # 尝试刷新页面
-                try:
-                    page.reload(timeout=30000, wait_until='domcontentloaded')
-                    print("🔄 页面已刷新")
-                except:
-                    print("⚠️ 页面刷新失败")
+                else:
+                    raise Exception("所有点击尝试都失败了")
         
-        if not success:
-            print("\n⚠️ 未检测到明确的发布结果，保存当前状态...")
-            
-            # 保存发布状态信息
-            try:
-                # 截图
-                page.screenshot(path='douyin_publish_status.png')
-                print("📸 已保存状态截图")
-                
-                # 保存页面内容
-                with open('douyin_publish_status.html', 'w', encoding='utf-8') as f:
-                    f.write(page.content())
-                print("📄 已保存页面内容")
-                
-                # 保存当前URL
-                print(f"🔗 当前URL: {page.url}")
-            except Exception as e:
-                print(f"⚠️ 保存状态信息时出错: {str(e)}")
-            
-            return None
-        
-        # 发布成功后，尝试获取视频ID
-        try:
-            video_id = None
-            match = re.search(r'video/(\d+)', page.url)
-            if match:
-                video_id = match.group(1)
-                print(f"📝 视频ID: {video_id}")
-        except:
-            pass
-        
-        print("\n✅ 发布流程完成")
-        return True
+        # 如果所有尝试都失败了
+        douyin_logger.error("❌ 发布操作未成功完成")
+        return False
         
     except Exception as e:
-        print(f"❌ 发布过程出错: {str(e)}")
-        
+        douyin_logger.error(f"发布过程出错: {str(e)}")
         # 保存错误现场
         try:
-            page.screenshot(path='douyin_publish_error.png')
+            await page.screenshot(path='douyin_publish_error.png')
+            error_html = await page.content()
             with open('douyin_publish_error.html', 'w', encoding='utf-8') as f:
-                f.write(page.content())
+                f.write(error_html)
         except:
             pass
-            
         return False
 
 def process_upload_result(success):
