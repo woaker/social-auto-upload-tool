@@ -53,7 +53,7 @@ async def get_bilibili_cookie():
             cookie_data = build_bilibili_cookie_data(cookies)
             
             # 保存到cookiesFile目录
-            cookie_filename = f"{uuid.uuid4()}.json"
+            cookie_filename = f"bilibili_cookie.json"
             final_cookie_path = Path(BASE_DIR / "cookiesFile" / cookie_filename)
             
             with open(final_cookie_path, 'w', encoding='utf-8') as f:

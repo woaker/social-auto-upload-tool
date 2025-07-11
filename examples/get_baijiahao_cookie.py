@@ -11,7 +11,7 @@ from uploader.baijiahao_uploader.main import baijiahao_setup
 
 if __name__ == '__main__':
     # 生成随机的文件名
-    account_filename = f"{uuid.uuid4()}.json"
+    account_filename = f"baijiahao_cookie.json"
     account_file = Path(BASE_DIR / "cookiesFile" / account_filename)
     
     # 确保目录存在

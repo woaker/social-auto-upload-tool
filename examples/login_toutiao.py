@@ -21,7 +21,7 @@ async def main():
     print("=" * 40)
     
     # 账号文件路径 - 使用正确的路径
-    account_file = "cookies/toutiao_uploader/account.json"
+    account_file = "cookiesFile/toutiao_cookie.json"
     
     # 确保目录存在
     os.makedirs(os.path.dirname(account_file), exist_ok=True)
