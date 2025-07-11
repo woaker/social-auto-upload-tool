@@ -61,6 +61,8 @@ class VideoDownloader:
         # 基础选项
         cmd = [
             'yt-dlp',
+            '--format', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/mp4',  # 默认下载MP4格式
+            '--merge-output-format', 'mp4',  # 确保输出为MP4
             '--output', str(self.download_dir / '%(title)s.%(ext)s')
         ]
         

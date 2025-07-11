@@ -5,6 +5,7 @@ import asyncio
 import sys
 import json
 import uuid
+import time
 from pathlib import Path
 from playwright.async_api import async_playwright
 
@@ -38,11 +39,40 @@ async def get_bilibili_cookie():
             
             # 检查是否登录成功
             try:
+                print("🔍 正在检查登录状态...")
                 await page.goto("https://space.bilibili.com")
-                await page.wait_for_selector(".h-name", timeout=10000)
-                print("✅ 检测到登录成功")
-            except:
-                print("❌ 未检测到登录状态，请重新登录")
+                
+                # 增加等待时间，确保页面完全加载
+                print("⏳ 等待页面加载...")
+                await asyncio.sleep(3)
+                
+                # 多种选择器尝试检测登录状态
+                login_selectors = [".h-name", ".user-name", ".bili-avatar", "span.name"]
+                logged_in = False
+                
+                for selector in login_selectors:
+                    try:
+                        element = await page.wait_for_selector(selector, timeout=5000)
+                        if element:
+                            logged_in = True
+                            print(f"✅ 检测到登录成功 (selector: {selector})")
+                            break
+                    except:
+                        continue
+                
+                if not logged_in:
+                    # 尝试通过URL判断
+                    current_url = page.url
+                    if "space.bilibili.com" in current_url and "login" not in current_url:
+                        logged_in = True
+                        print("✅ 通过URL检测到登录成功")
+                
+                if not logged_in:
+                    print("❌ 未检测到登录状态，请重新登录")
+                    await browser.close()
+                    return False
+            except Exception as e:
+                print(f"❌ 检测登录状态失败: {e}")
                 await browser.close()
                 return False
             
@@ -54,7 +84,9 @@ async def get_bilibili_cookie():
             
             # 保存到cookiesFile目录
             cookie_filename = f"bilibili_cookie.json"
-            final_cookie_path = Path(BASE_DIR / "cookiesFile" / cookie_filename)
+            cookies_dir = Path(BASE_DIR / "cookiesFile")
+            cookies_dir.mkdir(exist_ok=True)
+            final_cookie_path = cookies_dir / cookie_filename
             
             with open(final_cookie_path, 'w', encoding='utf-8') as f:
                 json.dump(cookie_data, f, ensure_ascii=False, indent=2)
