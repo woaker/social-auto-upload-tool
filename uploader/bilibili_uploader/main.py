@@ -80,6 +80,13 @@ class BilibiliUploader(object):
         self.data.tid = self.tid
         self.data.set_tag(self.tags)
         self.data.dtime = self.dtime
+        # 设置为创作中心上传
+        self.data.source = 'CREATOR_CENTER'
+        # 设置其他必要的参数
+        self.data.no_reprint = 1  # 未经允许禁止转载
+        self.data.open_elec = 1   # 允许充电
+        self.data.up_close_danmu = False  # 开启弹幕
+        self.data.up_close_reply = False  # 开启评论
 
     def upload(self):
         with BiliBili(self.data) as bili:
@@ -98,16 +105,20 @@ class BilibiliUploader(object):
                 
             # 上传视频
             try:
-                video_part = bili.upload_file(str(self.file), lines=self.lines,
-                                            tasks=self.upload_thread_num)  # 上传视频，默认线路AUTO自动选择，线程数量3。
+                # 使用标准上传方式，但通过data.source指定为创作中心上传
+                video_part = bili.upload_file(str(self.file), lines=self.lines, tasks=self.upload_thread_num)
                 video_part['title'] = self.title
                 self.data.append(video_part)
-                ret = bili.submit()  # 提交视频
-                if ret.get('code') == 0:
+                
+                # 提交视频
+                ret = bili.submit()
+                
+                if ret and ret.get('code') == 0:
                     bilibili_logger.success(f'[+] {self.file.name}上传 成功')
                     return True
                 else:
-                    bilibili_logger.error(f'[-] {self.file.name}上传 失败, error messge: {ret.get("message")}')
+                    error_msg = ret.get('message') if ret else '未知错误'
+                    bilibili_logger.error(f'[-] {self.file.name}上传 失败, error message: {error_msg}')
                     return False
             except Exception as e:
                 bilibili_logger.error(f'[-] {self.file.name}上传 异常: {str(e)}')

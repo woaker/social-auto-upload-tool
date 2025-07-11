@@ -71,6 +71,26 @@ async def get_bilibili_cookie():
                     print("❌ 未检测到登录状态，请重新登录")
                     await browser.close()
                     return False
+                    
+                # 获取access token
+                print("🔑 正在获取access token...")
+                await page.goto("https://member.bilibili.com/platform/upload/video/frame")
+                await asyncio.sleep(3)
+                
+                # 获取localStorage中的access token
+                access_token = await page.evaluate("""() => {
+                    return localStorage.getItem('access_token') || '';
+                }""")
+                
+                if not access_token:
+                    print("⚠️ 未能获取到access token，尝试其他方式...")
+                    # 访问创作中心
+                    await page.goto("https://member.bilibili.com/platform/home")
+                    await asyncio.sleep(3)
+                    access_token = await page.evaluate("""() => {
+                        return localStorage.getItem('access_token') || '';
+                    }""")
+                
             except Exception as e:
                 print(f"❌ 检测登录状态失败: {e}")
                 await browser.close()
@@ -80,7 +100,7 @@ async def get_bilibili_cookie():
             cookies = await context.cookies()
             
             # 构建cookie数据
-            cookie_data = build_bilibili_cookie_data(cookies)
+            cookie_data = build_bilibili_cookie_data(cookies, access_token)
             
             # 保存到cookiesFile目录
             cookie_filename = f"bilibili_cookie.json"
@@ -93,6 +113,10 @@ async def get_bilibili_cookie():
             
             print(f"✅ B站Cookie文件生成成功: {cookie_filename}")
             print(f"文件路径: {final_cookie_path}")
+            if access_token:
+                print("✅ 成功获取access token")
+            else:
+                print("⚠️ 未能获取access token，可能会影响上传功能")
             print("现在可以使用B站平台进行上传了")
             
             await browser.close()
@@ -104,7 +128,7 @@ async def get_bilibili_cookie():
         traceback.print_exc()
         return False
 
-def build_bilibili_cookie_data(cookies):
+def build_bilibili_cookie_data(cookies, access_token=None):
     """构建B站cookie数据格式"""
     # 提取关键的cookie字段
     cookie_fields = ["SESSDATA", "bili_jct", "DedeUserID__ckMd5", "DedeUserID", "buvid3", "b_nut"]
@@ -144,7 +168,7 @@ def build_bilibili_cookie_data(cookies):
             cookie_dict[cookie['name']] = cookie['value']
     
     # 构建兼容的cookie格式
-    return {
+    result = {
         'cookies': standard_cookies,
         'origins': [],
         # biliup格式，供extract_keys_from_json使用
@@ -153,6 +177,13 @@ def build_bilibili_cookie_data(cookies):
         # 字典格式，供B站上传器直接使用
         'cookie_dict': cookie_dict
     }
+    
+    # 添加access token
+    if access_token:
+        result['token_info']['access_token'] = access_token
+        result['cookie_dict']['access_token'] = access_token
+    
+    return result
 
 if __name__ == '__main__':
     success = asyncio.run(get_bilibili_cookie())

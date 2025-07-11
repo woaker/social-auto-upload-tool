@@ -133,9 +133,31 @@ class BaiJiaHaoVideo(object):
         
         try:
             # 使用 Chromium 浏览器启动一个浏览器实例
-            browser = await playwright.chromium.launch(headless=False, executable_path=self.local_executable_path, proxy=self.proxy_setting)
+            browser_options = {
+                'headless': False,
+                'args': [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--disable-gpu',
+                    '--lang=zh-CN,zh'
+                ]
+            }
+            
+            if self.local_executable_path:
+                browser_options['executable_path'] = self.local_executable_path
+            
+            if self.proxy_setting:
+                browser_options['proxy'] = self.proxy_setting
+            
+            browser = await playwright.chromium.launch(**browser_options)
+            
             # 创建一个浏览器上下文，使用指定的 cookie 文件
-            context = await browser.new_context(storage_state=f"{self.account_file}", user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.4324.150 Safari/537.36')
+            context = await browser.new_context(
+                storage_state=f"{self.account_file}",
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.4324.150 Safari/537.36'
+            )
             # context = await set_init_script(context)
             await context.grant_permissions(['geolocation'])
 
@@ -183,16 +205,56 @@ class BaiJiaHaoVideo(object):
                     await asyncio.sleep(3)
 
             await self.publish_video(page, self.publish_date)
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(5000)  # 等待5秒
+            
             if await page.locator('div.passMod_dialog-container >> text=百度安全验证:visible').count():
                 baijiahao_logger.error("出现验证，退出")
                 raise Exception("出现验证，退出")
-            await page.wait_for_url("https://baijiahao.baidu.com/builder/rc/clue**", timeout=5000)
+            
+            # 检查发布状态
+            success = False
+            max_retries = 6  # 最多等待30秒（6次 * 5秒）
+            
+            for i in range(max_retries):
+                baijiahao_logger.info(f"正在检查发布状态... 第{i+1}次")
+                
+                # 检查各种可能的成功提示
+                success_selectors = [
+                    "text=发布成功",
+                    "text=视频发布成功",
+                    "text=已发布",
+                    ".success-icon",
+                    ".publish-success"
+                ]
+                
+                for selector in success_selectors:
+                    try:
+                        if await page.locator(selector).count() > 0:
+                            success = True
+                            baijiahao_logger.success(f"检测到发布成功提示: {selector}")
+                            break
+                    except:
+                        continue
+                
+                if success:
+                    break
+                    
+                # 检查是否已经跳转到列表页面
+                current_url = page.url
+                if "builder/rc/clue" in current_url:
+                    success = True
+                    baijiahao_logger.success("检测到已跳转到列表页面")
+                    break
+                
+                await page.wait_for_timeout(5000)  # 等待5秒后重试
+            
+            if not success:
+                raise Exception("未能确认发布状态，可能发布失败")
+            
             baijiahao_logger.success("视频发布成功")
-
             await context.storage_state(path=self.account_file)  # 保存cookie
             baijiahao_logger.info('cookie更新完毕！')
-            await asyncio.sleep(2)  # 这里延迟是为了方便眼睛直观的观看
+            await asyncio.sleep(3)  # 等待3秒
             # 关闭浏览器上下文和浏览器实例
             await context.close()
             await browser.close()
