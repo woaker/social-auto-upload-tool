@@ -91,6 +91,46 @@ check_environment() {
         fi
     fi
     
+    # 检查Xvfb
+    if ! command -v Xvfb &> /dev/null; then
+        log_warning "未检测到Xvfb，正在安装..."
+        
+        # 检测系统类型
+        if [ -f /etc/debian_version ]; then
+            # Debian/Ubuntu
+            sudo apt install -y xvfb
+        elif [ -f /etc/redhat-release ]; then
+            # CentOS/RHEL
+            sudo yum install -y xorg-x11-server-Xvfb
+        else
+            log_warning "不支持的系统类型，无法安装Xvfb"
+        fi
+    fi
+    
+    # 检查系统内存
+    if command -v free &> /dev/null; then
+        log_info "检查系统内存..."
+        total_mem=$(free -m | awk '/^Mem:/{print $2}')
+        available_mem=$(free -m | awk '/^Mem:/{print $7}')
+
+        log_info "总内存: ${total_mem}MB, 可用内存: ${available_mem}MB"
+
+        if [ $available_mem -lt 500 ]; then
+            log_warning "可用内存不足500MB，可能会影响浏览器稳定性"
+            
+            # 尝试释放一些内存
+            log_info "尝试释放内存缓存..."
+            sync
+            echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null
+            
+            # 重新检查内存
+            available_mem=$(free -m | awk '/^Mem:/{print $7}')
+            log_info "释放缓存后可用内存: ${available_mem}MB"
+        fi
+    else
+        log_warning "未找到free命令，无法检查内存状态"
+    fi
+    
     # 检查视频目录
     if [ ! -d "videoFile" ]; then
         log_warning "未找到videoFile目录，正在创建..."
@@ -163,12 +203,23 @@ batch_upload() {
     fi
     
     # 运行上传脚本
-    if [ "$schedule" = true ]; then
-        log_info "使用定时发布模式"
-        python3 douyin_enhanced_uploader.py --date "$date_str" --schedule
+    if command -v xvfb-run &> /dev/null; then
+        if [ "$schedule" = true ]; then
+            log_info "使用Xvfb和定时发布模式"
+            xvfb-run -a -s "-screen 0 1920x1080x24" python3 douyin_enhanced_uploader.py --date "$date_str" --schedule
+        else
+            log_info "使用Xvfb和立即发布模式"
+            xvfb-run -a -s "-screen 0 1920x1080x24" python3 douyin_enhanced_uploader.py --date "$date_str"
+        fi
     else
-        log_info "使用立即发布模式"
-        python3 douyin_enhanced_uploader.py --date "$date_str"
+        # 原有代码不变
+        if [ "$schedule" = true ]; then
+            log_info "使用定时发布模式"
+            python3 douyin_enhanced_uploader.py --date "$date_str" --schedule
+        else
+            log_info "使用立即发布模式"
+            python3 douyin_enhanced_uploader.py --date "$date_str"
+        fi
     fi
     
     if [ $? -eq 0 ]; then

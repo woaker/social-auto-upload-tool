@@ -51,7 +51,7 @@ class EnhancedDouYinUploader:
             headless=True,
             args=[
                 '--disable-gpu',
-                '--disable-dev-shm-usage',
+                '--disable-dev-shm-usage',  # 重要：避免使用/dev/shm，防止内存不足
                 '--disable-setuid-sandbox',
                 '--no-sandbox',
                 '--disable-extensions',
@@ -66,8 +66,15 @@ class EnhancedDouYinUploader:
                 '--ignore-certificate-errors',
                 '--ignore-ssl-errors',
                 '--ignore-certificate-errors-spki-list',
-                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36'
-            ]
+                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.110 Safari/537.36',
+                '--disable-infobars',
+                '--window-size=1920,1080',
+                '--start-maximized',
+                '--single-process',  # 单进程模式，减少资源占用
+                '--no-zygote',       # 禁用zygote进程
+                '--disable-breakpad' # 禁用崩溃报告
+            ],
+            timeout=120000  # 增加启动超时时间到120秒
         )
         
         # 创建新的上下文
@@ -163,23 +170,55 @@ class EnhancedDouYinUploader:
             else:
                 print("📤 立即发布模式")
             
-            # 创建抖音视频对象
-            app = DouYinVideo(title, video_file, tags, schedule_time, self.account_file)
+            # 增加重试机制
+            max_upload_retries = 3
+            for upload_attempt in range(1, max_upload_retries + 1):
+                try:
+                    print(f"🔄 上传尝试 ({upload_attempt}/{max_upload_retries})...")
+                    
+                    # 创建抖音视频对象
+                    app = DouYinVideo(title, video_file, tags, schedule_time, self.account_file)
+                    
+                    # 设置地理位置
+                    app.default_location = "北京市"
+                    
+                    # 使用我们的浏览器上下文
+                    app.browser = browser
+                    app.context = context
+                    app.playwright = playwright
+                    
+                    # 上传视频
+                    print("🚀 开始上传过程...")
+                    await app.main()
+                    
+                    print(f"✅ 视频 {os.path.basename(video_file)} 上传成功")
+                    return True
+                    
+                except Exception as e:
+                    print(f"⚠️ 上传尝试 {upload_attempt} 失败: {e}")
+                    if upload_attempt < max_upload_retries:
+                        wait_time = 30  # 等待30秒后重试
+                        print(f"等待 {wait_time} 秒后重试...")
+                        await asyncio.sleep(wait_time)
+                        
+                        # 重新初始化浏览器
+                        await browser.close()
+                        await playwright.stop()
+                        playwright, browser, context = await self.setup_browser()
+                        if not context:
+                            print("❌ 浏览器重新初始化失败")
+                            return False
+                            
+                        # 重新测试连接
+                        connection_ok = await self.test_connection(context)
+                        if not connection_ok:
+                            print("❌ 抖音连接测试失败，无法继续上传")
+                            return False
+                    else:
+                        print(f"❌ 达到最大重试次数，上传失败")
+                        return False
             
-            # 设置地理位置
-            app.default_location = "北京市"
-            
-            # 使用我们的浏览器上下文
-            app.browser = browser
-            app.context = context
-            app.playwright = playwright
-            
-            # 上传视频
-            print("🚀 开始上传过程...")
-            await app.main()
-            
-            print(f"✅ 视频 {os.path.basename(video_file)} 上传成功")
-            return True
+            return False
             
         except Exception as e:
             print(f"❌ 上传失败: {e}")
