@@ -333,10 +333,7 @@ class BilibiliVideo(object):
         """检查是否提交成功"""
         try:
             bilibili_logger.info("[-] 检查是否提交成功...")
-            
-            # 保存当前页面截图
-            await page.screenshot(path=f"bilibili_check_success_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-            
+             
             # 检查1: 检查是否有成功提示文本
             success_texts = ["提交成功", "已提交", "上传成功", "投稿成功", "稿件提交成功"]
             for text in success_texts:
@@ -356,6 +353,11 @@ class BilibiliVideo(object):
                 # 如果URL包含成功相关的参数，更可能是成功了
                 if "success" in current_url or "submitted" in current_url:
                     bilibili_logger.success("[+] URL包含成功相关参数，提交可能成功!")
+                    return True
+                
+                # 检查是否是B站上传成功后的frame页面
+                if "platform/upload/video/frame" in current_url:
+                    bilibili_logger.success("[+] 已跳转到frame页面，提交可能成功!")
                     return True
             
             # 检查3: 检查是否返回到视频管理页面
@@ -523,6 +525,12 @@ class BilibiliVideo(object):
         # 最后一次保存页面截图
         await page.screenshot(path=f"bilibili_final_state_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
         
+        # 检查当前URL是否是frame页面
+        current_url = page.url
+        if "platform/upload/video/frame" in current_url:
+            bilibili_logger.success("[+] 已跳转到frame页面，判定为提交成功!")
+            return True
+            
         # 检查是否真正成功
         return await self.check_submit_success(page, "")
 
@@ -1524,6 +1532,10 @@ class BilibiliVideo(object):
                 # 如果页面URL变化了，即使没有明确的成功提示，也可能是成功了
                 if not success and "member.bilibili.com/platform/upload/video" not in page.url:
                     bilibili_logger.info(f"[-] 页面URL已变化，视频可能已成功提交")
+                    # 特别检查是否是frame页面，这是B站上传成功后的常见跳转
+                    if "platform/upload/video/frame" in page.url:
+                        bilibili_logger.success("[+] 已跳转到frame页面，判定为提交成功!")
+                        return True
                     return True
                 
                 return success
