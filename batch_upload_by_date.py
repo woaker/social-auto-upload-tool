@@ -27,7 +27,7 @@ from utils.files_times import get_title_and_hashtags, generate_schedule_time_nex
 
 # 导入各平台的上传模块
 from uploader.douyin_uploader.main import douyin_setup, DouYinVideo
-from uploader.bilibili_uploader.main import read_cookie_json_file, extract_keys_from_json, random_emoji, BilibiliUploader
+from uploader.bilibili_uploader.main import random_emoji, BilibiliVideo, bilibili_setup
 from utils.video_converter import VideoConverter
 from uploader.ks_uploader.main import KSVideo, ks_setup
 from uploader.xiaohongshu_uploader.main import XiaoHongShuVideo, xiaohongshu_setup
@@ -260,20 +260,20 @@ class BatchUploader:
         print(f"📺 开始上传到B站...")
         account_file = self.platforms['bilibili']['account_file']
         
+        file_num = len(video_files)
+        publish_datetimes = self.get_publish_schedule(file_num)
+        
         try:
-            cookie_data = read_cookie_json_file(account_file)
-            cookie_data = extract_keys_from_json(cookie_data)
+            # 使用新的bilibili_setup函数验证cookie
+            cookie_valid = await bilibili_setup(account_file, handle=False)
+            if not cookie_valid:
+                print(f"❌ B站登录失败: cookie无效或不存在")
+                return
         except Exception as e:
             print(f"❌ B站登录失败: {e}")
             return
         
         tid = VideoZoneTypes.MUSIC_OTHER.value  # 设置分区id为音乐综合
-        file_num = len(video_files)
-        
-        if self.enable_schedule:
-            timestamps = generate_schedule_time_next_day(file_num, self.videos_per_day, daily_times=self.daily_times, timestamps=True, start_days=self.start_days)
-        else:
-            timestamps = [0] * file_num  # 立即发布
         
         for index, file in enumerate(video_files):
             try:
@@ -281,41 +281,39 @@ class BatchUploader:
                 # 清理标题中的特殊字符，避免B站审核问题
                 title = title.replace(" - ", " ").replace("(", "").replace(")", "")
                 title += random_emoji()  # B站不允许相同标题
-                tags_str = ','.join([tag for tag in tags])
                 
                 print(f"📤 正在上传: {file.name}")
                 print(f"   标题: {title}")
                 print(f"   标签: {tags}")
                 if self.enable_schedule:
-                    print(f"   发布时间: {timestamps[index] if timestamps[index] != 0 else '立即发布'}")
+                    print(f"   发布时间: {publish_datetimes[index].strftime('%Y-%m-%d %H:%M') if publish_datetimes[index] != 0 else '立即发布'}")
                 else:
                     print(f"   发布方式: 立即发布")
                 
-                # B站视频格式检查和转换
-                converter = VideoConverter()
-                supported_formats = ['.mp4', '.avi', '.mov', '.flv']
-                
-                current_file = file
-                if file.suffix.lower() not in supported_formats:
-                    print(f"⚠️  B站不支持 {file.suffix} 格式，正在转换为mp4...")
-                    converted_file = converter.convert_to_mp4(str(file))
-                    if converted_file:
-                        current_file = Path(converted_file)
-                        print(f"✅ 视频转换成功: {current_file.name}")
-                    else:
-                        print(f"❌ 视频转换失败，跳过文件: {file.name}")
-                        continue
-                
+                # 创建视频描述
                 desc = title
-                bili_uploader = BilibiliUploader(cookie_data, current_file, title, desc, tid, tags, timestamps[index])
-                await asyncio.get_event_loop().run_in_executor(None, bili_uploader.upload)
                 
-                # 如果转换了文件，上传完成后清理临时文件
-                if current_file != file:
-                    converter.cleanup_temp_file(str(current_file))
+                # 创建BilibiliVideo实例
+                bili_video = BilibiliVideo(
+                    title=title,
+                    file_path=file,
+                    desc=desc,
+                    tid=tid,
+                    tags=tags,
+                    publish_date=publish_datetimes[index],
+                    account_file=account_file
+                )
                 
-                print(f"✅ {file.name} 上传成功")
-                time.sleep(30)  # B站需要较长间隔
+                # 使用异步方法上传视频
+                success = await bili_video.main()
+                
+                if success:
+                    print(f"✅ {file.name} 上传成功")
+                else:
+                    print(f"❌ {file.name} 上传失败")
+                
+                # 增加B站上传后的等待时间，从30秒增加到60秒
+                time.sleep(60)  # B站需要较长间隔
                 
             except Exception as e:
                 print(f"❌ {file.name} 上传失败: {e}")
