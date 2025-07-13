@@ -183,9 +183,6 @@ class BilibiliVideo(object):
         start_url = page.url
         bilibili_logger.info(f"[-] 当前页面URL: {start_url}")
         
-        # 保存当前页面截图
-        await page.screenshot(path=f"bilibili_before_submit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-        
         # 尝试多种方式点击提交按钮
         success = False
         
@@ -323,9 +320,6 @@ class BilibiliVideo(object):
             except Exception as e:
                 bilibili_logger.error(f"[-] 键盘操作失败: {str(e)}")
         
-        # 保存操作后的截图
-        await page.screenshot(path=f"bilibili_after_submit_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-        
         # 最后一次检查是否提交成功
         return await self.check_submit_success(page, start_url)
 
@@ -445,9 +439,6 @@ class BilibiliVideo(object):
     async def ensure_video_submitted(self, page, browser, context):
         """确保视频真正提交成功"""
         bilibili_logger.info("[-] 确保视频真正提交成功...")
-        
-        # 保存当前页面截图
-        await page.screenshot(path=f"bilibili_before_ensure_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
         
         # 检查是否有任何确认对话框或按钮需要点击
         confirm_selectors = [
@@ -763,10 +754,7 @@ class BilibiliVideo(object):
             # 填写视频信息
             bilibili_logger.info(f'[-] 正在填写视频信息...')
             
-            try:
-                # 保存截图，查看当前页面状态
-                await page.screenshot(path=f"bilibili_after_upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-                
+            try:    
                 # 填写标题
                 bilibili_logger.info("[-] 填写视频标题...")
                 title_selectors = [
@@ -1321,9 +1309,6 @@ class BilibiliVideo(object):
                                 if '同意' in button_text:
                                     bilibili_logger.info("[-] 检测到点击了'同意'按钮，等待弹窗后点击'立即投稿'按钮...")
                                     await asyncio.sleep(3)  # 等待弹窗或其他UI元素出现
-                                    
-                                    # 截图记录当前状态
-                                    await page.screenshot(path=f"bilibili_after_agree_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
                                     
                                     # 尝试查找并点击真正的提交按钮
                                     try:

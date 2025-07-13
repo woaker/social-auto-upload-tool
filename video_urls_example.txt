@@ -16,5 +16,6 @@
 # 3. 运行命令: python batch_video_downloader.py -f video_urls_example.txt -d ./videoFile/2025-06-09
 
 
-https://www.youtube.com/watch?v=tOCv94b577k
+https://www.youtube.com/watch?v=vYm0brFoMwA
+https://www.youtube.com/watch?v=TleJmC_IH1Q
 
