@@ -911,7 +911,7 @@ class TouTiaoArticle(object):
             # 保存截图
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             screenshot_path = f"toutiao_publish_result_{timestamp}.png"
-            await page.screenshot(path=screenshot_path, full_page=True)
+            # await page.screenshot(path=screenshot_path, full_page=True)
             douyin_logger.info(f"📸 截图已保存: {screenshot_path}")
             
         except Exception as e:
@@ -921,11 +921,6 @@ class TouTiaoArticle(object):
             await context.storage_state(path=self.account_file)
             douyin_logger.info("Cookie已更新")
             
-            try:
-                input("按回车键关闭浏览器...")
-            except EOFError:
-                douyin_logger.info("检测到非交互模式，自动关闭浏览器")
-                await asyncio.sleep(3)
             await browser.close()
 
     async def main(self):
