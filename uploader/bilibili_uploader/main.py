@@ -609,7 +609,6 @@ class BilibiliVideo(object):
                 
                 # 保存页面截图，用于调试
                 bilibili_logger.info("[-] 保存页面截图用于调试...")
-                await page.screenshot(path=f"bilibili_page_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
                 
                 # 等待页面元素加载完成
                 bilibili_logger.info("[-] 等待页面元素加载...")
