@@ -51,6 +51,9 @@ class WechatSyncStyleFormatter:
         if not text:
             return ""
         
+        # 处理没有空格的标题格式（例如 "##前言" 变成 "## 前言"）
+        text = re.sub(r'^(#{1,6})([^#\s])', r'\1 \2', text, flags=re.MULTILINE)
+        
         # 处理标题
         text = re.sub(r'^#{1}\s+(.+)$', r'\n# \1\n', text, flags=re.MULTILINE)
         text = re.sub(r'^#{2}\s+(.+)$', r'\n## \1\n', text, flags=re.MULTILINE)
@@ -246,6 +249,14 @@ class WechatSyncStyleFormatter:
         text = text.strip()
         prefix = "#" * level
         
+        # 为标题添加表情符号，使其更加醒目
+        if level <= 3 and len(text) < 30:  # 只为较短的主要标题添加表情符号
+            for keyword, emoji in self.code_languages.items():
+                if keyword.lower() in text.lower():
+                    text = f"{emoji} {text}"
+                    break
+        
+        # 确保标题前后有足够的空行
         return f"\n\n{prefix} {text}\n\n"
     
     def _format_code_block(self, code_text, language=''):
@@ -1140,15 +1151,15 @@ class EnhancedArticleForwarder:
         if not content:
             return ""
         
-        # 添加文章来源信息
-        source_info = f"""
-> **原文链接**: {url}
-> **转发时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-> **内容优化**: 已优化排版格式，提升阅读体验
+        # 移除原文链接和转发时间信息，今日头条不需要这些
+        # source_info = f"""
+        # > **原文链接**: {url}
+        # > **转发时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+        # > **内容优化**: 已优化排版格式，提升阅读体验
 
----
+        # ---
 
-"""
+        # """
         
         # 处理正文内容
         content = content.strip()
@@ -1166,8 +1177,16 @@ class EnhancedArticleForwarder:
             if not para:
                 continue
                 
-            # 处理标题
-            if para.startswith('#'):
+            # 处理标题 - 确保markdown标题正确转换
+            if re.match(r'^#{1,6}\s+', para):
+                # 确保标题格式正确，例如 "## 标题" 而不是 "#＃ 标题"
+                para = re.sub(r'^(#{1,6})\s*', r'\1 ', para)
+                formatted_paragraphs.append(f"\n{para}\n")
+                continue
+            
+            # 处理可能被错误格式化的标题（例如 "##前言" 没有空格）
+            if re.match(r'^#{1,6}[^#\s]', para):
+                para = re.sub(r'^(#{1,6})([^#\s])', r'\1 \2', para)
                 formatted_paragraphs.append(f"\n{para}\n")
                 continue
             
@@ -1209,8 +1228,8 @@ class EnhancedArticleForwarder:
         # 3. 合并处理后的内容
         content = '\n\n'.join(formatted_paragraphs)
         
-        # 4. 添加文章来源信息
-        content = source_info + content
+        # 4. 不再添加文章来源信息
+        # content = source_info + content
         
         # 5. 最终的格式清理
         content = re.sub(r'\n{3,}', '\n\n', content)  # 删除多余的空行
@@ -1218,12 +1237,67 @@ class EnhancedArticleForwarder:
         content = content.strip()
         
         if use_rich_text:
-            print("🎨 正在使用wechatSync简洁风格格式化器处理内容...")
-            content = self.formatter.markdown_to_text(content)
-            print(f"✅ 内容格式化完成，最终长度: {len(content)} 字符")
-            print("📝 格式化特性: 简洁标题、清晰代码块、适当段落间距")
-        
-        return content
+            print("🎨 正在将Markdown转换为富文本格式...")
+            
+            # 使用 markdown 库将 Markdown 转换为 HTML
+            import markdown
+            html_content = markdown.markdown(
+                content,
+                extensions=[
+                    'markdown.extensions.extra',
+                    'markdown.extensions.codehilite',
+                    'markdown.extensions.tables',
+                    'markdown.extensions.nl2br'
+                ]
+            )
+            
+            # 添加基本样式
+            html_content = f"""
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; line-height: 1.6; color: #333;">
+                {html_content}
+            </div>
+            """
+            
+            # 使用今日头条富文本编辑器支持的格式
+            # 替换标题样式
+            html_content = re.sub(r'<h1>(.*?)</h1>', r'<h1 style="font-size: 24px; font-weight: bold; margin: 20px 0 10px;">\1</h1>', html_content)
+            html_content = re.sub(r'<h2>(.*?)</h2>', r'<h2 style="font-size: 20px; font-weight: bold; margin: 18px 0 9px;">\1</h2>', html_content)
+            html_content = re.sub(r'<h3>(.*?)</h3>', r'<h3 style="font-size: 18px; font-weight: bold; margin: 16px 0 8px;">\1</h3>', html_content)
+            
+            # 替换代码块样式
+            html_content = re.sub(
+                r'<pre><code>(.*?)</code></pre>',
+                r'<pre style="background-color: #f6f8fa; border-radius: 3px; padding: 10px; overflow: auto;"><code>\1</code></pre>',
+                html_content,
+                flags=re.DOTALL
+            )
+            
+            # 替换行内代码样式
+            html_content = re.sub(
+                r'<code>(.*?)</code>',
+                r'<code style="background-color: #f6f8fa; border-radius: 3px; padding: 2px 4px; font-family: monospace;">\1</code>',
+                html_content
+            )
+            
+            # 替换引用块样式
+            html_content = re.sub(
+                r'<blockquote>(.*?)</blockquote>',
+                r'<blockquote style="border-left: 4px solid #ddd; padding-left: 10px; margin-left: 0; color: #666;">\1</blockquote>',
+                html_content,
+                flags=re.DOTALL
+            )
+            
+            # 替换列表样式
+            html_content = re.sub(r'<ul>', r'<ul style="padding-left: 20px;">', html_content)
+            html_content = re.sub(r'<ol>', r'<ol style="padding-left: 20px;">', html_content)
+            
+            print(f"✅ HTML格式化完成，最终长度: {len(html_content)} 字符")
+            print("📝 格式化特性: HTML富文本、美化标题、代码高亮、适当段落间距")
+            
+            return html_content
+        else:
+            # 返回 Markdown 格式（用于保存文件）
+            return content
     
     def _optimize_content_spacing(self, content):
         """优化内容间距 - V2版本"""
@@ -1413,18 +1487,48 @@ class EnhancedArticleForwarder:
         if not content:
             return ""
         
-        # 标题表情映射
+        # 标题表情映射 - 扩展版
         title_emoji_map = {
-            '介绍': '📝', '简介': '📝',
-            '安装': '⚙️', '配置': '⚙️',
-            '使用': '🔨', '用法': '🔨',
-            '示例': '💡', '例子': '💡',
-            '注意': '⚠️', '警告': '⚠️',
-            '总结': '📌', '结论': '📌',
-            '问题': '❓', '解决': '✅',
-            '特性': '✨', '功能': '✨',
-            '步骤': '📋', '流程': '📋',
-            '代码': '💻', '实现': '💻'
+            # 基础章节
+            '介绍': '📝', '简介': '📝', '前言': '📝', '概述': '📝',
+            '背景': '🔍', '目标': '🎯', '动机': '💡', '原理': '🔬',
+            
+            # 技术相关
+            '安装': '⚙️', '配置': '⚙️', '设置': '⚙️', '环境': '⚙️',
+            '使用': '🔨', '用法': '🔨', '实践': '🔨', '操作': '🔨',
+            '示例': '💡', '例子': '💡', '案例': '💡', '演示': '💡',
+            '代码': '💻', '实现': '💻', '编码': '💻', '程序': '💻',
+            '架构': '🏗️', '设计': '📐', '模式': '🧩', '结构': '🔧',
+            '测试': '🧪', '调试': '🔍', '优化': '⚡', '性能': '⚡',
+            
+            # 提示和警告
+            '注意': '⚠️', '警告': '⚠️', '提示': '💡', '建议': '💡',
+            '问题': '❓', '解决': '✅', '错误': '❌', '异常': '⚠️',
+            '常见问题': '❓', 'FAQ': '❓', '疑难解答': '🔧',
+            
+            # 总结类
+            '总结': '📌', '结论': '📌', '小结': '📌', '回顾': '📌',
+            '展望': '🔭', '未来': '🔮', '计划': '📅', '路线图': '🗺️',
+            
+            # 功能和特性
+            '特性': '✨', '功能': '✨', '特点': '✨', '亮点': '✨',
+            '优点': '👍', '缺点': '👎', '优势': '👍', '劣势': '👎',
+            
+            # 流程和步骤
+            '步骤': '📋', '流程': '📋', '过程': '📋', '阶段': '📋',
+            '方法': '🔧', '技巧': '💡', '策略': '🎯', '实战': '⚔️',
+            
+            # 面试相关
+            '面试': '🎯', '题目': '📝', '解答': '✅', '分析': '🔍',
+            
+            # 框架和语言
+            'Vue': '💚', 'React': '⚛️', 'Angular': '🅰️', 'Node': '📦',
+            'Python': '🐍', 'Java': '☕', 'JavaScript': '📜', 'TypeScript': '📘',
+            'Go': '🐹', 'Rust': '🦀', 'C++': '⚙️', 'PHP': '🐘',
+            
+            # 数据相关
+            '数据': '📊', '统计': '📈', '分析': '📉', '可视化': '📊',
+            '算法': '🧮', '模型': '🧠', '学习': '📚', '训练': '🏋️'
         }
         
         # 为标题添加表情
@@ -1441,8 +1545,23 @@ class EnhancedArticleForwarder:
             
             if emoji:
                 return f"{'#' * level} {emoji} {title}"
+            
+            # 如果没有匹配的关键词，根据标题级别添加默认表情
+            if level == 1:
+                return f"# 📑 {title}"  # 主标题
+            elif level == 2:
+                return f"## 📌 {title}"  # 二级标题
+            elif level == 3:
+                return f"### 📎 {title}"  # 三级标题
+            
             return match.group(0)
         
+        # 处理标准格式的标题
+        content = re.sub(r'^(#{1,6})\s+(.+)$', add_title_emoji, content, flags=re.MULTILINE)
+        
+        # 处理可能没有空格的标题格式
+        content = re.sub(r'^(#{1,6})([^#\s].+)$', r'\1 \2', content, flags=re.MULTILINE)
+        # 再次应用表情符号
         content = re.sub(r'^(#{1,6})\s+(.+)$', add_title_emoji, content, flags=re.MULTILINE)
         
         return content
@@ -1796,7 +1915,7 @@ class AIContentEnhancer:
             print(f"⚠️ AI标签生成出现错误: {str(e)}")
             return []
 
-async def forward_article_from_url(url, account_file="cookies/toutiao_uploader/account.json", save_file=True):
+async def forward_article_from_url(url, account_file="cookiesFile/toutiao_cookie.json", save_file=True):
     """从URL转发文章到今日头条"""
     try:
         # 检查登录状态
@@ -1839,7 +1958,7 @@ async def forward_article_from_url(url, account_file="cookies/toutiao_uploader/a
         print(f"❌ 获取文章失败: {str(e)}")
         return None
 
-async def publish_article_to_toutiao(title, content, tags, url, account_file="cookies/toutiao_uploader/account.json"):
+async def publish_article_to_toutiao(title, content, tags, url, account_file="cookiesFile/toutiao_cookie.json"):
     """发布文章到今日头条"""
     print(f"\n⚠️ 即将转发文章到今日头条:")
     print(f"📰 标题: {title}")
@@ -1890,7 +2009,7 @@ async def main():
 
     # 显示参数信息
     print(f"🔗 目标链接: {args.url}")
-    print(f"🔑 账号文件: cookies/toutiao_uploader/account.json")
+    print(f"🔑 账号文件: cookiesFile/toutiao_cookie.json")
     print(f"💾 保存文件: {'是' if args.save_file else '否'}")
     print(f"👀 预览模式: {'是' if args.preview else '否'}")
     print(f"🤖 AI增强: {'是' if args.use_ai else '否'}")

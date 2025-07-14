@@ -14,6 +14,7 @@ import time
 import textwrap
 from datetime import datetime
 from playwright.async_api import Playwright, async_playwright
+import re
 
 # 添加项目根目录到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -261,8 +262,51 @@ class TouTiaoArticle(object):
                 await page.keyboard.press('Control+a')
                 await asyncio.sleep(0.5)
                 
-                # 填写新内容
-                await content_editor.fill(self.content)
+                # 检测内容是否为HTML格式
+                is_html = bool(re.search(r'<[a-z]+[^>]*>', self.content))
+                
+                if is_html:
+                    douyin_logger.info("检测到HTML格式内容，使用粘贴方式插入")
+                    
+                    # 使用 JavaScript 将 HTML 内容插入编辑器
+                    # 这种方法可以保留 HTML 格式
+                    js_insert_html = f"""
+                    (() => {{
+                        const html = `{self.content.replace('`', '\\`')}`;
+                        const editor = document.querySelector('.ProseMirror');
+                        if (editor) {{
+                            // 创建一个临时div来解析HTML
+                            const temp = document.createElement('div');
+                            temp.innerHTML = html;
+                            
+                            // 清空编辑器
+                            editor.innerHTML = '';
+                            
+                            // 将HTML内容移动到编辑器
+                            while (temp.firstChild) {{
+                                editor.appendChild(temp.firstChild);
+                            }}
+                            
+                            // 触发内容变化事件
+                            const event = new Event('input', {{ bubbles: true }});
+                            editor.dispatchEvent(event);
+                            
+                            return true;
+                        }}
+                        return false;
+                    }})();
+                    """
+                    
+                    success = await page.evaluate(js_insert_html)
+                    if success:
+                        douyin_logger.info("✅ HTML内容插入成功")
+                    else:
+                        douyin_logger.warning("⚠️ HTML内容插入失败，尝试使用普通文本方式")
+                        await content_editor.fill(self.content)
+                else:
+                    # 填写普通文本内容
+                    await content_editor.fill(self.content)
+                
                 await asyncio.sleep(2)
                 
                 douyin_logger.info("✅ 内容填写成功")
