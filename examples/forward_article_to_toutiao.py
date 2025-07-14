@@ -1164,9 +1164,9 @@ class EnhancedArticleForwarder:
         # 处理正文内容
         content = content.strip()
         
-        # 1. 优化标题格式
-        if title and not content.startswith('# '):
-            content = f"# {title}\n\n{content}"
+        # 1. 不再添加标题到内容中，因为今日头条已经有单独的标题字段
+        # if title and not content.startswith('# '):
+        #     content = f"# {title}\n\n{content}"
         
         # 2. 优化段落格式
         paragraphs = content.split('\n\n')
@@ -1834,6 +1834,7 @@ class AIContentEnhancer:
             8. 适当添加要点符号
             9. 保持专业性和可读性的平衡
             10. 输出格式必须是Markdown
+            11. 不要在内容开头添加文章标题，标题将单独处理
 
             原标题: {title}
             标签: {', '.join(tags)}
@@ -1857,11 +1858,19 @@ class AIContentEnhancer:
             enhanced_content = response.choices[0].message.content.strip()
             
             # 提取优化后的标题（如果AI生成了新标题）
+            new_title = title
             if enhanced_content.startswith('# '):
-                new_title = enhanced_content.split('\n')[0].lstrip('# ').strip()
+                # 提取AI生成的标题
+                first_line = enhanced_content.split('\n')[0]
+                potential_title = first_line.lstrip('# ').strip()
+                if potential_title:  # 如果有内容，使用它作为新标题
+                    new_title = potential_title
+                # 无论如何，从内容中移除标题行
                 enhanced_content = '\n'.join(enhanced_content.split('\n')[1:]).strip()
-            else:
-                new_title = title
+            
+            # 再次检查是否有标题格式的行（有时AI会添加多个标题）
+            if enhanced_content.startswith('# '):
+                enhanced_content = re.sub(r'^#\s+.*?\n', '', enhanced_content, count=1, flags=re.MULTILINE)
             
             print("✨ AI内容优化完成")
             return {
