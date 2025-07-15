@@ -560,12 +560,7 @@ class TouTiaoArticle(object):
                 
                 # 获取当前页面HTML结构，用于调试
                 html_structure = await page.evaluate('() => document.body.innerHTML.substring(0, 1000)')
-                douyin_logger.info(f"页面HTML结构(前1000字符): {html_structure}")
-                
-                # 截图保存，用于调试
-                screenshot_path = os.path.join(project_root, "images", f"material_library_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-                await page.screenshot(path=screenshot_path)
-                douyin_logger.info(f"页面截图已保存: {screenshot_path}")
+                douyin_logger.info(f"页面HTML结构(前1000字符): {html_structure}")                
             except Exception as e:
                 douyin_logger.warning(f"获取页面信息失败: {e}")
             

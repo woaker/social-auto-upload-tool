@@ -1931,7 +1931,7 @@ class AIContentEnhancer:
             文章标题: {title}
             
             文章内容:
-            {content[:1000]}  # 只使用前1000个字符
+            {content[:2000]}  # 只使用前2000个字符
             """
             
             # 调用OpenAI API
@@ -2008,14 +2008,9 @@ async def publish_article_to_toutiao(title, content, tags, url, account_file="co
     print(f"🔄 格式: Markdown → 富文本格式")
     print(f"🔒 验证码: 如遇验证码将等待用户输入")
     
-    try:
-        confirm = input("\n确认转发吗？(y/N): ").strip().lower()
-        if confirm not in ['y', 'yes']:
-            print("❌ 用户取消转发")
-            return False
-    except EOFError:
-        print("\n📋 检测到非交互模式，自动确认转发")
-        print("⚠️ 注意: 如遇验证码，请在浏览器中手动输入")
+    # 自动确认转发，不再需要用户输入y
+    print("\n📋 自动确认转发")
+    print("⚠️ 注意: 如遇验证码，请在浏览器中手动输入")
     
     # 创建转发器
     forwarder = EnhancedArticleForwarder()
