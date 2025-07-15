@@ -25,6 +25,8 @@ from typing import Optional, Dict, List
 import json
 import argparse
 import traceback
+import math
+import random
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1139,6 +1141,10 @@ class EnhancedArticleForwarder:
         print(f"🌐 正在获取文章: {url}")
         
         try:
+            # 检查是否为知乎链接
+            if 'zhihu.com' in url:
+                return await self._fetch_zhihu_article(url)
+            
             # 发送HTTP请求
             response = requests.get(url, headers=self.headers, timeout=30)
             response.encoding = 'utf-8'
@@ -1173,6 +1179,160 @@ class EnhancedArticleForwarder:
             
         except Exception as e:
             print(f"❌ 获取文章失败: {e}")
+            return None, None, None
+            
+    async def _fetch_zhihu_article(self, url):
+        """使用Playwright模拟浏览器获取知乎文章内容"""
+        print("🔍 检测到知乎链接，使用浏览器模拟访问...")
+        
+        try:
+            # 从URL中提取文章ID
+            article_id = url.split('/')[-1]
+            print(f"📝 知乎文章ID: {article_id}")
+            
+            # 使用Playwright模拟浏览器访问
+            async with async_playwright() as playwright:
+                # 使用有界面模式以便观察
+                browser = await playwright.chromium.launch(headless=False)
+                
+                # 创建上下文并添加反爬虫措施
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    viewport={"width": 1280, "height": 800},
+                    device_scale_factor=1,
+                )
+                
+                # 添加stealth.js脚本来绕过反爬虫检测
+                stealth_js_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "utils/stealth.min.js")
+                if os.path.exists(stealth_js_path):
+                    with open(stealth_js_path, "r") as f:
+                        stealth_js = f.read()
+                    await context.add_init_script(stealth_js)
+                
+                # 创建页面
+                page = await context.new_page()
+                
+                # 设置超时
+                page.set_default_timeout(60000)  # 60秒超时
+                
+                # 访问知乎文章页面
+                print(f"🌐 正在访问知乎文章: {url}")
+                await page.goto(url)
+                
+                # 检查是否有验证码或登录弹窗
+                print("⏳ 等待页面加载，检查是否有验证码...")
+                await page.wait_for_load_state("networkidle")
+                
+                # 等待一段时间，让页面完全加载
+                await page.wait_for_timeout(5000)
+                
+                # 检查是否需要处理验证码
+                if await page.query_selector('.Captcha') or await page.query_selector('.SignFlowInput'):
+                    print("⚠️ 检测到验证码或登录弹窗，需要人工处理")
+                    print("请在打开的浏览器中完成验证，然后脚本将继续...")
+                    
+                    # 等待用户处理验证码
+                    await page.wait_for_selector('.Post-Title, .QuestionHeader-title, .ArticleHeader-title', timeout=120000)
+                
+                # 再次等待页面加载
+                await page.wait_for_load_state("networkidle")
+                await page.wait_for_timeout(2000)
+                
+                # 截图用于调试
+                screenshot_path = "zhihu_debug.png"
+                await page.screenshot(path=screenshot_path)
+                print(f"📸 页面截图已保存: {screenshot_path}")
+                
+                # 尝试获取标题
+                title_selectors = [
+                    '.Post-Title', 
+                    '.QuestionHeader-title', 
+                    '.ArticleHeader-title',
+                    'h1'
+                ]
+                
+                title = "未知标题"
+                for selector in title_selectors:
+                    title_element = await page.query_selector(selector)
+                    if title_element:
+                        title = await title_element.text_content()
+                        title = title.strip()
+                        if title:
+                            break
+                
+                # 尝试获取内容
+                content_selectors = [
+                    '.Post-RichTextContainer', 
+                    '.QuestionRichText',
+                    '.RichText',
+                    '.Post-RichText',
+                    'article'
+                ]
+                
+                content_html = ""
+                for selector in content_selectors:
+                    try:
+                        content_html = await page.evaluate(f"""() => {{
+                            const element = document.querySelector('{selector}');
+                            return element ? element.innerHTML : '';
+                        }}""")
+                        
+                        if content_html:
+                            break
+                    except Exception as e:
+                        print(f"尝试选择器 {selector} 失败: {e}")
+                
+                if not content_html:
+                    # 如果所有选择器都失败，尝试获取整个页面内容
+                    content_html = await page.content()
+                
+                # 使用BeautifulSoup解析HTML
+                soup = BeautifulSoup(content_html, 'html.parser')
+                
+                # 移除不需要的元素
+                for unwanted in soup.select('.CommentBox, .Reward, .FollowButton, .VoteButton, .ContentItem-actions'):
+                    if unwanted:
+                        unwanted.decompose()
+                
+                # 转换为Markdown
+                content = self._html_to_markdown_enhanced(soup)
+                
+                # 提取标签
+                tags = []
+                tag_selectors = ['.Tag-content .Tag-label', '.TopicLink', '.Tag']
+                
+                for selector in tag_selectors:
+                    tag_elements = await page.query_selector_all(selector)
+                    for tag_element in tag_elements:
+                        tag_text = await tag_element.text_content()
+                        if tag_text and tag_text.strip():
+                            tags.append(tag_text.strip())
+                    
+                    if tags:
+                        break
+                
+                # 如果没有找到标签，使用默认标签
+                if not tags:
+                    tags = ['知乎', '文章转发']
+                
+                # 关闭浏览器
+                await browser.close()
+                
+                # 检查内容是否有效
+                if len(content) < 100:
+                    print(f"⚠️ 获取的内容过短，可能未成功抓取: {len(content)} 字符")
+                    return None, None, None
+                
+                print(f"✅ 知乎文章获取成功:")
+                print(f"📝 标题: {title}")
+                print(f"📊 内容长度: {len(content)} 字符")
+                print(f"🏷️ 标签: {tags}")
+                
+                return title, content, tags
+                
+        except Exception as e:
+            print(f"❌ 知乎文章获取失败: {e}")
+            traceback.print_exc()  # 打印完整错误堆栈，便于调试
             return None, None, None
     
     def _enhance_content_format(self, title, content, url, use_rich_text=True):
