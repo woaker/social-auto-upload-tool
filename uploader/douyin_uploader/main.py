@@ -6,7 +6,7 @@ import os
 import asyncio
 
 from conf import LOCAL_CHROME_PATH
-from utils.base_social_media import set_init_script
+from utils.base_social_media import set_init_script, wait_with_timeout
 from utils.log import douyin_logger
 
 
@@ -95,6 +95,80 @@ class DouYinVideo(object):
         douyin_logger.info('视频出错了，重新上传中')
         await page.locator('div.progress-div [class^="upload-btn-input"]').set_input_files(self.file_path)
 
+    async def set_thumbnail(self, page: Page, thumbnail_path: str):
+        """设置视频封面，如果未提供封面则等待平台自动生成"""
+        try:
+            # 检查是否有封面选择器
+            cover_selector = 'text="选择封面"'
+            cover_button = page.locator(cover_selector)
+            
+            # 等待封面按钮出现，最多等待10秒
+            try:
+                await cover_button.wait_for(timeout=10000)
+            except:
+                douyin_logger.warning("  [-] 未找到封面选择按钮，可能页面结构已变化")
+                return
+            
+            if thumbnail_path:
+                # 用户提供了封面，上传自定义封面
+                douyin_logger.info("  [-] 正在上传自定义封面...")
+                await cover_button.click()
+                await page.wait_for_selector("div.semi-modal-content:visible", timeout=5000)
+                await page.click('text="设置竖封面"')
+                await page.wait_for_timeout(2000)  # 等待2秒
+                
+                # 定位到上传区域并点击
+                file_input = page.locator("div[class^='semi-upload upload'] >> input.semi-upload-hidden-input")
+                await file_input.set_input_files(thumbnail_path)
+                await page.wait_for_timeout(2000)  # 等待2秒
+                
+                # 点击完成按钮
+                finish_button = page.locator("div[class^='extractFooter'] button:visible:has-text('完成')")
+                if await finish_button.count() > 0:
+                    await finish_button.click()
+                    douyin_logger.success("  [-] 自定义封面设置成功")
+                else:
+                    douyin_logger.warning("  [-] 未找到完成按钮，封面可能未设置成功")
+            else:
+                # 未提供封面，等待平台自动生成
+                douyin_logger.info("  [-] 未提供封面，等待平台自动生成封面...")
+                
+                # 检查是否已有自动生成的封面预览
+                preview_selectors = [
+                    "div[class*='cover-container']",
+                    "div[class*='cover-preview']",
+                    "div[class*='thumbnail']",
+                    "div[class*='cover'] img"
+                ]
+                
+                # 等待封面生成，最多等待15秒
+                cover_found = False
+                start_time = datetime.now()
+                timeout_seconds = 15
+                
+                while (datetime.now() - start_time).total_seconds() < timeout_seconds:
+                    for selector in preview_selectors:
+                        try:
+                            preview = page.locator(selector)
+                            if await preview.count() > 0 and await preview.is_visible():
+                                cover_found = True
+                                douyin_logger.success(f"  [-] 检测到平台已自动生成封面")
+                                break
+                        except:
+                            pass
+                    
+                    if cover_found:
+                        break
+                        
+                    douyin_logger.info(f"  [-] 等待封面生成中... ({int((datetime.now() - start_time).total_seconds())}秒)")
+                    await asyncio.sleep(2)
+                
+                if not cover_found:
+                    douyin_logger.warning(f"  [-] 等待封面生成超时({timeout_seconds}秒)，将使用平台默认封面")
+        except Exception as e:
+            douyin_logger.warning(f"  [-] 设置封面过程中出错: {str(e)}，将使用平台默认封面")
+            douyin_logger.info("  [-] 封面不是必需的，继续发布流程...")
+
     async def upload(self, playwright: Playwright) -> None:
         # 使用 Chromium 浏览器启动一个浏览器实例
         if self.local_executable_path:
@@ -116,26 +190,30 @@ class DouYinVideo(object):
         # 点击 "上传视频" 按钮
         await page.locator("div[class^='container'] input").set_input_files(self.file_path)
 
-        # 等待页面跳转到指定的 URL 2025.01.08修改在原有基础上兼容两种页面
-        while True:
-            try:
-                # 尝试等待第一个 URL
-                await page.wait_for_url(
-                    "https://creator.douyin.com/creator-micro/content/publish?enter_from=publish_page", timeout=3000)
-                douyin_logger.info("[+] 成功进入version_1发布页面!")
-                break  # 成功进入页面后跳出循环
-            except Exception:
-                try:
-                    # 如果第一个 URL 超时，再尝试等待第二个 URL
-                    await page.wait_for_url(
-                        "https://creator.douyin.com/creator-micro/content/post/video?enter_from=publish_page",
-                        timeout=3000)
-                    douyin_logger.info("[+] 成功进入version_2发布页面!")
-
-                    break  # 成功进入页面后跳出循环
-                except:
-                    print("  [-] 超时未进入视频发布页面，重新尝试...")
-                    await asyncio.sleep(0.5)  # 等待 0.5 秒后重新尝试
+        # 等待页面跳转到指定的 URL，使用通用超时函数
+        async def check_page_loaded():
+            current_url = page.url
+            return (
+                "creator.douyin.com/creator-micro/content/publish?enter_from=publish_page" in current_url or
+                "creator.douyin.com/creator-micro/content/post/video?enter_from=publish_page" in current_url
+            )
+        
+        page_loaded = await wait_with_timeout(
+            check_func=check_page_loaded,
+            timeout_seconds=60,
+            interval_seconds=1.0,
+            timeout_message="等待发布页面超时",
+            success_message="成功进入发布页面!",
+            progress_message="等待进入视频发布页面...",
+            logger=douyin_logger
+        )
+        
+        if not page_loaded:
+            douyin_logger.error("❌ 终止发布")
+            await context.close()
+            await browser.close()
+            return
+            
         # 填充标题和话题
         # 检查是否存在包含输入框的元素
         # 这里为了避免页面变化，故使用相对位置定位：作品标题父级右侧第一个元素的input子元素
@@ -158,25 +236,37 @@ class DouYinVideo(object):
             await page.press(css_selector, "Space")
         douyin_logger.info(f'总共添加{len(self.tags)}个话题')
 
-        while True:
-            # 判断重新上传按钮是否存在，如果不存在，代表视频正在上传，则等待
+        # 等待视频上传完成，使用通用超时函数
+        async def check_upload_completed():
             try:
-                #  新版：定位重新上传
                 number = await page.locator('[class^="long-card"] div:has-text("重新上传")').count()
                 if number > 0:
-                    douyin_logger.success("  [-]视频上传完毕")
-                    break
-                else:
-                    douyin_logger.info("  [-] 正在上传视频中...")
-                    await asyncio.sleep(2)
-
-                    if await page.locator('div.progress-div > div:has-text("上传失败")').count():
-                        douyin_logger.error("  [-] 发现上传出错了... 准备重试")
-                        await self.handle_upload_error(page)
+                    return True
+                
+                # 检查是否上传失败
+                if await page.locator('div.progress-div > div:has-text("上传失败")').count():
+                    douyin_logger.error("  [-] 发现上传出错了... 准备重试")
+                    await self.handle_upload_error(page)
             except:
-                douyin_logger.info("  [-] 正在上传视频中...")
-                await asyncio.sleep(2)
+                pass
+            return False
         
+        upload_completed = await wait_with_timeout(
+            check_func=check_upload_completed,
+            timeout_seconds=300,  # 5分钟超时
+            interval_seconds=2.0,
+            timeout_message="视频上传超时",
+            success_message="视频上传完毕",
+            progress_message="正在上传视频中...",
+            logger=douyin_logger
+        )
+        
+        if not upload_completed:
+            douyin_logger.error("❌ 终止发布")
+            await context.close()
+            await browser.close()
+            return
+            
         #上传视频封面
         await self.set_thumbnail(page, self.thumbnail_path)
 
@@ -189,21 +279,36 @@ class DouYinVideo(object):
         if self.publish_date != 0:
             await self.set_schedule_time_douyin(page, self.publish_date)
 
-        # 判断视频是否发布成功
-        while True:
-            # 判断视频是否发布成功
+        # 等待发布完成，使用通用超时函数
+        async def check_publish_completed():
             try:
                 publish_button = page.get_by_role('button', name="发布", exact=True)
                 if await publish_button.count():
                     await publish_button.click()
-                await page.wait_for_url("https://creator.douyin.com/creator-micro/content/manage**",
-                                        timeout=3000)  # 如果自动跳转到作品页面，则代表发布成功
-                douyin_logger.success("  [-]视频发布成功")
-                break
+                
+                # 检查是否已跳转到作品管理页面
+                current_url = page.url
+                if "creator.douyin.com/creator-micro/content/manage" in current_url:
+                    return True
             except:
-                douyin_logger.info("  [-] 视频正在发布中...")
-                await page.screenshot(full_page=True)
-                await asyncio.sleep(0.5)
+                # 保存当前状态的截图
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                await page.screenshot(path=f"douyin_publish_{timestamp}.png", full_page=True)
+            return False
+        
+        publish_completed = await wait_with_timeout(
+            check_func=check_publish_completed,
+            timeout_seconds=180,  # 3分钟超时
+            interval_seconds=1.0,
+            timeout_message="视频发布超时，可能需要手动确认",
+            success_message="视频发布成功",
+            progress_message="视频正在发布中...",
+            logger=douyin_logger
+        )
+        
+        if not publish_completed:
+            # 尝试截图保存当前状态
+            await page.screenshot(path="douyin_publish_timeout.png", full_page=True)
 
         await context.storage_state(path=self.account_file)  # 保存cookie
         douyin_logger.success('  [-]cookie更新完毕！')
@@ -212,21 +317,6 @@ class DouYinVideo(object):
         await context.close()
         await browser.close()
     
-    async def set_thumbnail(self, page: Page, thumbnail_path: str):
-        if thumbnail_path:
-            await page.click('text="选择封面"')
-            await page.wait_for_selector("div.semi-modal-content:visible")
-            await page.click('text="设置竖封面"')
-            await page.wait_for_timeout(2000)  # 等待2秒
-            # 定位到上传区域并点击
-            await page.locator("div[class^='semi-upload upload'] >> input.semi-upload-hidden-input").set_input_files(thumbnail_path)
-            await page.wait_for_timeout(2000)  # 等待2秒
-            await page.locator("div[class^='extractFooter'] button:visible:has-text('完成')").click()
-            # finish_confirm_element = page.locator("div[class^='confirmBtn'] >> div:has-text('完成')")
-            # if await finish_confirm_element.count():
-            #     await finish_confirm_element.click()
-            # await page.locator("div[class^='footer'] button:has-text('完成')").click()
-
     async def set_location(self, page: Page, location: str = "北京市"):
         """设置地理位置，如果失败则跳过"""
         try:
