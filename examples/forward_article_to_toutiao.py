@@ -396,6 +396,35 @@ class EnhancedArticleForwarder:
                 '步骤': '📝', '方法': '🔧', '技巧': '💡',
                 '问题': '❓', '解决': '✅', '错误': '❌',
                 '性能': '⚡', '安全': '🔒', '测试': '🧪'
+            },
+            'code_languages': {
+                'python': 'Python',
+                'java': 'Java',
+                'javascript': 'JavaScript',
+                'js': 'JavaScript',
+                'typescript': 'TypeScript',
+                'ts': 'TypeScript',
+                'html': 'HTML',
+                'css': 'CSS',
+                'php': 'PHP',
+                'ruby': 'Ruby',
+                'go': 'Go',
+                'rust': 'Rust',
+                'c': 'C',
+                'cpp': 'C++',
+                'csharp': 'C#',
+                'swift': 'Swift',
+                'kotlin': 'Kotlin',
+                'sql': 'SQL',
+                'bash': 'Bash',
+                'shell': 'Shell',
+                'json': 'JSON',
+                'xml': 'XML',
+                'yaml': 'YAML',
+                'markdown': 'Markdown',
+                'md': 'Markdown',
+                'plaintext': '纯文本',
+                'text': '纯文本'
             }
         }
     
@@ -723,7 +752,7 @@ class EnhancedArticleForwarder:
         
         # 检测语言
         language = self._detect_code_language(code_elem)
-        lang_display = self.content_enhancers['code_languages'].get(language, language)
+        lang_display = self.content_enhancers.get('code_languages', {}).get(language, language)
         
         # 清理代码文本
         code_text = code_text.strip()

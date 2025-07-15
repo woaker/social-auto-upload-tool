@@ -641,11 +641,6 @@ class TouTiaoArticle(object):
                     await asyncio.sleep(2)
                     douyin_logger.info("点击了封面上传区域")
                     
-                    # 再次截图，用于调试
-                    screenshot_path = os.path.join(project_root, "images", f"after_click_upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-                    await page.screenshot(path=screenshot_path)
-                    douyin_logger.info(f"点击上传区域后截图已保存: {screenshot_path}")
-                    
                     # 再次尝试查找"我的素材"标签
                     for selector in material_selectors:
                         try:
@@ -696,11 +691,6 @@ class TouTiaoArticle(object):
             # 等待素材加载
             await asyncio.sleep(3)
             
-            # 再次截图，用于调试
-            screenshot_path = os.path.join(project_root, "images", f"after_material_tab_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-            await page.screenshot(path=screenshot_path)
-            douyin_logger.info(f"点击素材标签后截图已保存: {screenshot_path}")
-            
             # 根据截图中的DOM结构，精确定位图片元素
             image_selectors = [
                 'div.resource-item-img',
@@ -746,10 +736,6 @@ class TouTiaoArticle(object):
                 await asyncio.sleep(1)
                 douyin_logger.info("已点击选择图片")
                 
-                # 点击图片后截图，用于调试
-                screenshot_path = os.path.join(project_root, "images", f"after_select_image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-                await page.screenshot(path=screenshot_path)
-                douyin_logger.info(f"选择图片后截图已保存: {screenshot_path}")
             except Exception as e:
                 douyin_logger.error(f"点击选择图片失败: {e}")
                 return False
@@ -778,11 +764,6 @@ class TouTiaoArticle(object):
                             await confirm_btn.click()
                             await asyncio.sleep(2)
                             douyin_logger.info(f"点击了确认按钮: {selector}")
-                            
-                            # 点击确认后截图，用于调试
-                            screenshot_path = os.path.join(project_root, "images", f"after_confirm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-                            await page.screenshot(path=screenshot_path)
-                            douyin_logger.info(f"点击确认后截图已保存: {screenshot_path}")
                             
                             return True
                 except Exception as e:
