@@ -238,7 +238,7 @@ class BatchUploader:
                 print(f"📤 正在上传: {file.name}")
                 print(f"   标题: {title}")
                 print(f"   标签: {tags}")
-                print(f"   地理位置: 北京市")
+                print(f"   地理位置: 上海市")
                 if self.enable_schedule:
                     print(f"   发布时间: {publish_datetimes[index].strftime('%Y-%m-%d %H:%M')}")
                 else:
@@ -246,7 +246,7 @@ class BatchUploader:
                 
                 app = DouYinVideo(title, file, tags, publish_datetimes[index], account_file)
                 # 设置固定地理位置
-                app.default_location = "北京市"
+                app.default_location = "上海市"
                 await app.main()
                 
                 print(f"✅ {file.name} 上传成功")
@@ -377,7 +377,7 @@ class BatchUploader:
                 else:
                     print(f"   发布方式: 立即发布")
                 
-                app = XiaoHongShuVideo(title, file, tags, publish_datetimes[index], account_file, location="北京市")
+                app = XiaoHongShuVideo(title, file, tags, publish_datetimes[index], account_file, location="上海市")
                 await app.main()
                 
                 print(f"✅ {file.name} 上传成功")

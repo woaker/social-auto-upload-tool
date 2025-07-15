@@ -65,6 +65,17 @@ async def douyin_cookie_gen(account_file):
 
 class DouYinVideo(object):
     def __init__(self, title, file_path, tags, publish_date: datetime, account_file, thumbnail_path=None):
+        """
+        初始化抖音视频上传对象
+        
+        Args:
+            title: 视频标题
+            file_path: 视频文件路径
+            tags: 视频标签列表
+            publish_date: 发布日期时间（0表示立即发布）
+            account_file: 账号配置文件路径
+            thumbnail_path: 封面图路径（可选，如果为None则会尝试自动提取）
+        """
         self.title = title  # 视频标题
         self.file_path = file_path
         self.tags = tags
@@ -73,7 +84,7 @@ class DouYinVideo(object):
         self.date_format = '%Y年%m月%d日 %H:%M'
         self.local_executable_path = LOCAL_CHROME_PATH
         self.thumbnail_path = thumbnail_path
-        self.default_location = "北京市"  # 默认地理位置
+        self.default_location = "上海市"  # 默认地理位置
 
     async def set_schedule_time_douyin(self, page, publish_date):
         # 选择包含特定文本内容的 label 元素
@@ -96,77 +107,259 @@ class DouYinVideo(object):
         await page.locator('div.progress-div [class^="upload-btn-input"]').set_input_files(self.file_path)
 
     async def set_thumbnail(self, page: Page, thumbnail_path: str):
-        """设置视频封面，如果未提供封面则等待平台自动生成"""
+        """设置视频封面，如果未提供封面则自动提取视频缩略图"""
         try:
-            # 检查是否有封面选择器
-            cover_selector = 'text="选择封面"'
-            cover_button = page.locator(cover_selector)
+            douyin_logger.info("  [-] 开始设置视频封面...")
             
-            # 等待封面按钮出现，最多等待10秒
-            try:
-                await cover_button.wait_for(timeout=10000)
-            except:
-                douyin_logger.warning("  [-] 未找到封面选择按钮，可能页面结构已变化")
-                return
+            # 检查是否有封面设置按钮或提示
+            cover_selectors = [
+                'text="选择封面"',
+                'button:has-text("选择封面")',
+                'div[class*="cover"] button',
+                'div[class*="cover-container"] button',
+                'div[class*="cover-selector"] button',
+                'div:has-text("请设置封面后再发布")',
+                'span:has-text("请设置封面后再发布")'
+            ]
             
-            if thumbnail_path:
-                # 用户提供了封面，上传自定义封面
-                douyin_logger.info("  [-] 正在上传自定义封面...")
-                await cover_button.click()
-                await page.wait_for_selector("div.semi-modal-content:visible", timeout=5000)
-                await page.click('text="设置竖封面"')
-                await page.wait_for_timeout(2000)  # 等待2秒
-                
-                # 定位到上传区域并点击
-                file_input = page.locator("div[class^='semi-upload upload'] >> input.semi-upload-hidden-input")
-                await file_input.set_input_files(thumbnail_path)
-                await page.wait_for_timeout(2000)  # 等待2秒
-                
-                # 点击完成按钮
-                finish_button = page.locator("div[class^='extractFooter'] button:visible:has-text('完成')")
-                if await finish_button.count() > 0:
-                    await finish_button.click()
-                    douyin_logger.success("  [-] 自定义封面设置成功")
-                else:
-                    douyin_logger.warning("  [-] 未找到完成按钮，封面可能未设置成功")
-            else:
-                # 未提供封面，等待平台自动生成
-                douyin_logger.info("  [-] 未提供封面，等待平台自动生成封面...")
-                
-                # 检查是否已有自动生成的封面预览
-                preview_selectors = [
-                    "div[class*='cover-container']",
-                    "div[class*='cover-preview']",
-                    "div[class*='thumbnail']",
-                    "div[class*='cover'] img"
+            # 等待任意一个封面相关元素出现
+            cover_element = None
+            for selector in cover_selectors:
+                try:
+                    element = page.locator(selector)
+                    if await element.count() > 0 and await element.is_visible():
+                        cover_element = element
+                        douyin_logger.info(f"  [-] 找到封面设置元素: {selector}")
+                        break
+                except:
+                    continue
+            
+            # 如果没有找到封面元素，尝试查找封面区域
+            if not cover_element:
+                area_selectors = [
+                    'div[class*="cover"]',
+                    'div[class*="thumbnail"]',
+                    'div[class*="poster"]'
                 ]
                 
-                # 等待封面生成，最多等待15秒
-                cover_found = False
-                start_time = datetime.now()
-                timeout_seconds = 15
+                for selector in area_selectors:
+                    try:
+                        element = page.locator(selector)
+                        if await element.count() > 0 and await element.is_visible():
+                            cover_element = element
+                            douyin_logger.info(f"  [-] 找到封面区域: {selector}")
+                            break
+                    except:
+                        continue
+            
+            # 如果仍然没有找到封面元素，查找错误提示
+            if not cover_element:
+                error_selectors = [
+                    'div:has-text("请设置封面")',
+                    'span:has-text("请设置封面")',
+                    'div.semi-notification-content:has-text("封面")',
+                    'div.error-message:has-text("封面")'
+                ]
                 
-                while (datetime.now() - start_time).total_seconds() < timeout_seconds:
-                    for selector in preview_selectors:
+                for selector in error_selectors:
+                    try:
+                        element = page.locator(selector)
+                        if await element.count() > 0 and await element.is_visible():
+                            # 找到错误提示，尝试查找附近的按钮
+                            douyin_logger.warning(f"  [-] 发现封面错误提示: {selector}")
+                            
+                            # 尝试点击关闭错误提示
+                            close_button = page.locator('div.semi-notification-close-btn')
+                            if await close_button.count() > 0:
+                                await close_button.click()
+                                douyin_logger.info("  [-] 关闭错误提示")
+                            
+                            # 尝试查找页面上所有按钮
+                            buttons = await page.locator('button').all()
+                            for button in buttons:
+                                try:
+                                    button_text = await button.text_content()
+                                    if "封面" in button_text:
+                                        cover_element = button
+                                        douyin_logger.info(f"  [-] 找到封面按钮: {button_text}")
+                                        break
+                                except:
+                                    continue
+                            
+                            break
+                    except:
+                        continue
+            
+            # 如果没有提供缩略图，则尝试从视频中提取
+            if not thumbnail_path:
+                douyin_logger.info("  [-] 未提供封面图，尝试从视频中提取缩略图...")
+                try:
+                    from utils.video_converter import extract_video_thumbnail
+                    thumbnail_path = extract_video_thumbnail(self.file_path)
+                    douyin_logger.success(f"  [-] 成功从视频中提取缩略图: {thumbnail_path}")
+                except Exception as e:
+                    douyin_logger.error(f"  [-] 提取视频缩略图失败: {e}")
+                    douyin_logger.info("  [-] 将使用平台默认封面")
+            
+            # 如果找到了封面元素且有缩略图，则设置封面
+            if cover_element and thumbnail_path:
+                # 点击封面设置元素
+                await cover_element.click()
+                await page.wait_for_timeout(2000)  # 等待2秒
+                
+                # 检查是否打开了封面设置模态框
+                modal_selectors = [
+                    "div.semi-modal-content:visible",
+                    "div[class*='modal']:visible",
+                    "div[role='dialog']:visible"
+                ]
+                
+                modal_found = False
+                for selector in modal_selectors:
+                    try:
+                        modal = page.locator(selector)
+                        if await modal.count() > 0 and await modal.is_visible():
+                            modal_found = True
+                            douyin_logger.info("  [-] 检测到封面设置模态框")
+                            break
+                    except:
+                        continue
+                
+                # 如果没有找到模态框，可能直接打开了文件选择器
+                if not modal_found:
+                    douyin_logger.info("  [-] 未检测到模态框，尝试直接上传封面...")
+                    
+                    # 尝试查找文件输入框
+                    file_inputs = await page.locator("input[type='file']").all()
+                    if file_inputs:
+                        await file_inputs[0].set_input_files(thumbnail_path)
+                        douyin_logger.success("  [-] 直接上传封面成功")
+                    else:
+                        douyin_logger.warning("  [-] 未找到文件输入框，无法上传封面")
+                else:
+                    # 在模态框中查找"设置竖封面"或其他选项
+                    cover_option_selectors = [
+                        'text="设置竖封面"',
+                        'text="设置封面"',
+                        'text="上传封面"',
+                        'button:has-text("上传")',
+                        'div[class*="upload"]'
+                    ]
+                    
+                    option_found = False
+                    for selector in cover_option_selectors:
                         try:
-                            preview = page.locator(selector)
-                            if await preview.count() > 0 and await preview.is_visible():
-                                cover_found = True
-                                douyin_logger.success(f"  [-] 检测到平台已自动生成封面")
+                            option = page.locator(selector)
+                            if await option.count() > 0 and await option.is_visible():
+                                await option.click()
+                                option_found = True
+                                douyin_logger.info(f"  [-] 点击封面选项: {selector}")
+                                await page.wait_for_timeout(2000)  # 等待2秒
                                 break
                         except:
-                            pass
+                            continue
                     
-                    if cover_found:
-                        break
+                    # 查找文件上传输入框
+                    file_input_selectors = [
+                        "input[type='file']",
+                        "div[class^='semi-upload'] >> input.semi-upload-hidden-input",
+                        "input.semi-upload-hidden-input",
+                        "input[class*='upload']"
+                    ]
+                    
+                    file_input_found = False
+                    for selector in file_input_selectors:
+                        try:
+                            file_input = page.locator(selector)
+                            if await file_input.count() > 0:
+                                await file_input.set_input_files(thumbnail_path)
+                                file_input_found = True
+                                douyin_logger.info(f"  [-] 通过选择器上传封面: {selector}")
+                                await page.wait_for_timeout(3000)  # 等待3秒，确保上传完成
+                                break
+                        except Exception as e:
+                            douyin_logger.warning(f"  [-] 文件上传失败: {e}")
+                            continue
+                    
+                    if not file_input_found:
+                        douyin_logger.warning("  [-] 未找到文件上传输入框，无法上传封面")
+                    
+                    # 点击完成按钮
+                    finish_button_selectors = [
+                        "button:has-text('完成')",
+                        "div[class^='extractFooter'] button:visible:has-text('完成')",
+                        "div[class*='footer'] button:visible:has-text('完成')",
+                        "div[class*='modal-footer'] button:last-child",
+                        "div[role='dialog'] button:last-child"
+                    ]
+                    
+                    finish_button_found = False
+                    for selector in finish_button_selectors:
+                        try:
+                            finish_button = page.locator(selector)
+                            if await finish_button.count() > 0 and await finish_button.is_visible():
+                                await finish_button.click()
+                                finish_button_found = True
+                                douyin_logger.success("  [-] 点击完成按钮")
+                                break
+                        except:
+                            continue
+                    
+                    if not finish_button_found:
+                        douyin_logger.warning("  [-] 未找到完成按钮，尝试点击确认按钮")
                         
-                    douyin_logger.info(f"  [-] 等待封面生成中... ({int((datetime.now() - start_time).total_seconds())}秒)")
-                    await asyncio.sleep(2)
+                        # 尝试点击确认按钮
+                        confirm_button_selectors = [
+                            "button:has-text('确认')",
+                            "button:has-text('确定')",
+                            "div[class*='footer'] button:last-child"
+                        ]
+                        
+                        for selector in confirm_button_selectors:
+                            try:
+                                confirm_button = page.locator(selector)
+                                if await confirm_button.count() > 0 and await confirm_button.is_visible():
+                                    await confirm_button.click()
+                                    douyin_logger.success("  [-] 点击确认按钮")
+                                    break
+                            except:
+                                continue
                 
-                if not cover_found:
-                    douyin_logger.warning(f"  [-] 等待封面生成超时({timeout_seconds}秒)，将使用平台默认封面")
+                # 等待一段时间，确保封面设置完成
+                await page.wait_for_timeout(3000)
+                douyin_logger.success("  [-] 封面设置流程完成")
+                
+                # 检查是否还有封面错误提示
+                error_message = page.locator("div:has-text('请设置封面后再发布')")
+                if await error_message.count() > 0 and await error_message.is_visible():
+                    douyin_logger.warning("  [-] 仍然存在封面错误提示，可能需要重试或手动设置")
+                    
+                    # 截图记录当前状态
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    await page.screenshot(path=f"douyin_cover_error_{timestamp}.png", full_page=True)
+                else:
+                    douyin_logger.success("  [-] 未检测到封面错误提示，封面设置成功")
+            elif thumbnail_path:
+                douyin_logger.warning("  [-] 未找到封面设置元素，但有封面图片")
+                
+                # 尝试查找任何可能的文件上传输入框
+                file_inputs = await page.locator("input[type='file']").all()
+                if file_inputs:
+                    for file_input in file_inputs:
+                        try:
+                            await file_input.set_input_files(thumbnail_path)
+                            douyin_logger.success("  [-] 通过通用文件输入框上传封面成功")
+                            break
+                        except:
+                            continue
+            else:
+                douyin_logger.warning("  [-] 未能设置封面，将使用平台默认封面")
+                
         except Exception as e:
-            douyin_logger.warning(f"  [-] 设置封面过程中出错: {str(e)}，将使用平台默认封面")
+            douyin_logger.warning(f"  [-] 设置封面过程中出错: {str(e)}")
+            # 截图记录错误状态
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            await page.screenshot(path=f"douyin_cover_error_{timestamp}.png", full_page=True)
             douyin_logger.info("  [-] 封面不是必需的，继续发布流程...")
 
     async def upload(self, playwright: Playwright) -> None:
@@ -267,7 +460,8 @@ class DouYinVideo(object):
             await browser.close()
             return
             
-        #上传视频封面
+        # 上传视频封面
+        douyin_logger.info("  [-] 处理视频封面...")
         await self.set_thumbnail(page, self.thumbnail_path)
 
         # 更换可见元素
@@ -317,7 +511,7 @@ class DouYinVideo(object):
         await context.close()
         await browser.close()
     
-    async def set_location(self, page: Page, location: str = "北京市"):
+    async def set_location(self, page: Page, location: str = "上海市"):
         """设置地理位置，如果失败则跳过"""
         try:
             douyin_logger.info(f"  [-] 正在设置地理位置: {location}")
@@ -498,7 +692,38 @@ class DouYinVideo(object):
             douyin_logger.info('  [-] 继续发布流程...')
 
     async def main(self):
-        async with async_playwright() as playwright:
-            await self.upload(playwright)
+        """执行抖音视频上传流程"""
+        try:
+            # 提取的缩略图路径（如果有）
+            extracted_thumbnail = None
+            
+            # 如果没有提供缩略图但需要自动提取
+            if not self.thumbnail_path:
+                try:
+                    from utils.video_converter import extract_video_thumbnail
+                    douyin_logger.info(f"[+] 预先提取视频缩略图...")
+                    extracted_thumbnail = extract_video_thumbnail(self.file_path)
+                    self.thumbnail_path = extracted_thumbnail
+                    douyin_logger.success(f"[+] 成功预先提取缩略图: {extracted_thumbnail}")
+                except Exception as e:
+                    douyin_logger.error(f"[+] 预先提取视频缩略图失败: {e}")
+                    douyin_logger.info("[+] 将在上传过程中再次尝试提取")
+            
+            # 执行上传流程
+            async with async_playwright() as playwright:
+                await self.upload(playwright)
+                
+        except Exception as e:
+            douyin_logger.error(f"[+] 抖音视频上传过程中出错: {e}")
+            raise
+        finally:
+            # 清理提取的缩略图临时文件
+            if extracted_thumbnail:
+                try:
+                    from utils.video_converter import video_converter
+                    video_converter.cleanup_temp_file(extracted_thumbnail)
+                    douyin_logger.info(f"[+] 已清理临时缩略图文件: {extracted_thumbnail}")
+                except Exception as e:
+                    douyin_logger.warning(f"[+] 清理临时缩略图文件失败: {e}")
 
 

@@ -168,3 +168,91 @@ def convert_video_if_needed(file_path, platform="xiaohongshu"):
 def cleanup_converted_files():
     """清理所有转换生成的临时文件"""
     video_converter.cleanup_temp_files() 
+
+
+def extract_video_thumbnail(video_path, output_path=None):
+    """
+    从视频中提取缩略图
+    
+    Args:
+        video_path: 视频文件路径
+        output_path: 输出缩略图路径（可选，默认生成临时文件）
+    
+    Returns:
+        str: 缩略图文件路径
+    """
+    video_path = Path(video_path)
+    
+    # 检查ffmpeg是否可用
+    if not video_converter.check_ffmpeg_available():
+        xiaohongshu_logger.error("❌ 未安装ffmpeg，无法提取视频缩略图")
+        xiaohongshu_logger.error("请安装ffmpeg: brew install ffmpeg (macOS) 或访问 https://ffmpeg.org/")
+        raise RuntimeError("ffmpeg未安装")
+    
+    # 如果未指定输出路径，生成临时文件
+    if output_path is None:
+        temp_dir = tempfile.gettempdir()
+        output_path = os.path.join(temp_dir, f"{video_path.stem}_thumbnail.jpg")
+        video_converter.temp_files.append(output_path)  # 记录临时文件用于后续清理
+    
+    xiaohongshu_logger.info(f"🖼️ 开始提取视频缩略图: {video_path}")
+    xiaohongshu_logger.info(f"   输出文件: {output_path}")
+    
+    try:
+        # 使用ffmpeg提取视频的第1秒作为缩略图
+        cmd = [
+            'ffmpeg',
+            '-i', str(video_path),
+            '-ss', '00:00:01.000',  # 从视频的第1秒开始
+            '-vframes', '1',        # 只提取1帧
+            '-q:v', '2',            # 质量参数（2是高质量）
+            '-y',                   # 覆盖输出文件
+            str(output_path)
+        ]
+        
+        xiaohongshu_logger.info(f"🔧 提取命令: {' '.join(cmd)}")
+        
+        # 执行提取命令
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            timeout=60  # 1分钟超时
+        )
+        
+        if result.returncode == 0:
+            xiaohongshu_logger.info(f"✅ 缩略图提取成功: {output_path}")
+            
+            # 检查输出文件是否存在且不为空
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                return output_path
+            else:
+                xiaohongshu_logger.error("提取的缩略图为空或不存在")
+                raise RuntimeError("缩略图提取失败：输出文件无效")
+        else:
+            xiaohongshu_logger.error(f"❌ 缩略图提取失败:")
+            xiaohongshu_logger.error(f"错误信息: {result.stderr}")
+            
+            # 如果提取失败，尝试从视频中间位置提取
+            xiaohongshu_logger.info("尝试从视频中间位置提取缩略图...")
+            cmd[3] = '00:00:05.000'  # 从视频的第5秒开始
+            
+            result = subprocess.run(
+                cmd, 
+                capture_output=True, 
+                text=True, 
+                timeout=60
+            )
+            
+            if result.returncode == 0:
+                xiaohongshu_logger.info(f"✅ 缩略图提取成功（第二次尝试）: {output_path}")
+                return output_path
+            else:
+                raise RuntimeError(f"ffmpeg提取缩略图失败: {result.stderr}")
+                
+    except subprocess.TimeoutExpired:
+        xiaohongshu_logger.error("❌ 缩略图提取超时")
+        raise RuntimeError("缩略图提取超时")
+    except Exception as e:
+        xiaohongshu_logger.error(f"❌ 缩略图提取过程中出错: {e}")
+        raise 

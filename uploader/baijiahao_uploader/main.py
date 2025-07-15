@@ -122,6 +122,11 @@ class BaiJiaHaoVideo(object):
         # 检查视频格式兼容性并转换
         converter = VideoConverter()
         original_file_path = self.file_path
+        browser = None
+        context = None
+        
+        # 记录开始时间
+        start_time = time.time()
         
         # 百家号支持的视频格式
         supported_formats = ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.mkv']
@@ -182,6 +187,12 @@ class BaiJiaHaoVideo(object):
                 except:
                     baijiahao_logger.info("正在等待进入视频发布页面...")
                     await asyncio.sleep(0.1)
+                
+                # 检查总体超时
+                current_time = time.time()
+                if current_time - start_time > 180:  # 3分钟总体超时
+                    baijiahao_logger.error(f"⚠️ 整体流程超时：已耗时{int(current_time - start_time)}秒，超过3分钟限制")
+                    raise TimeoutError("百家号上传整体流程超时")
 
             # 填充标题和话题
             # 这里为了避免页面变化，故使用相对位置定位：作品标题父级右侧第一个元素的input子元素
@@ -195,14 +206,29 @@ class BaiJiaHaoVideo(object):
                 raise Exception("视频上传失败")
 
             # 判断视频封面图是否生成成功
+            cover_wait_start = time.time()
+            cover_wait_timeout = 60  # 60秒封面等待超时
+            
             while True:
                 baijiahao_logger.info("正在确认封面完成, 准备去点击定时/发布...")
                 if await page.locator("div.cheetah-spin-container img").count():
                     baijiahao_logger.info("封面已完成，点击定时/发布...")
                     break
                 else:
-                    baijiahao_logger.info("等待封面生成...")
+                    # 检查封面等待超时
+                    current_time = time.time()
+                    if current_time - cover_wait_start > cover_wait_timeout:
+                        baijiahao_logger.error(f"⚠️ 等待封面生成超时：已耗时{int(current_time - cover_wait_start)}秒")
+                        raise TimeoutError("等待封面生成超时")
+                    
+                    baijiahao_logger.info(f"等待封面生成... (已等待{int(current_time - cover_wait_start)}秒)")
                     await asyncio.sleep(3)
+                
+                # 检查总体超时
+                current_time = time.time()
+                if current_time - start_time > 180:  # 3分钟总体超时
+                    baijiahao_logger.error(f"⚠️ 整体流程超时：已耗时{int(current_time - start_time)}秒，超过3分钟限制")
+                    raise TimeoutError("百家号上传整体流程超时")
 
             await self.publish_video(page, self.publish_date)
             await page.wait_for_timeout(5000)  # 等待5秒
@@ -246,12 +272,22 @@ class BaiJiaHaoVideo(object):
                     baijiahao_logger.success("检测到已跳转到列表页面")
                     break
                 
+                # 检查总体超时
+                current_time = time.time()
+                if current_time - start_time > 180:  # 3分钟总体超时
+                    baijiahao_logger.error(f"⚠️ 整体流程超时：已耗时{int(current_time - start_time)}秒，超过3分钟限制")
+                    raise TimeoutError("百家号上传整体流程超时")
+                
                 await page.wait_for_timeout(5000)  # 等待5秒后重试
             
             if not success:
                 raise Exception("未能确认发布状态，可能发布失败")
             
-            baijiahao_logger.success("视频发布成功")
+            # 计算总耗时
+            end_time = time.time()
+            total_time = end_time - start_time
+            baijiahao_logger.success(f"视频发布成功，总耗时: {int(total_time)}秒")
+            
             await context.storage_state(path=self.account_file)  # 保存cookie
             baijiahao_logger.info('cookie更新完毕！')
             await asyncio.sleep(3)  # 等待3秒
@@ -259,8 +295,33 @@ class BaiJiaHaoVideo(object):
             await context.close()
             await browser.close()
             
+        except TimeoutError as e:
+            baijiahao_logger.error(f"上传过程中超时: {e}")
+            # 强制结束当前发布
+            if context:
+                try:
+                    await context.close()
+                except:
+                    pass
+            if browser:
+                try:
+                    await browser.close()
+                except:
+                    pass
+            raise
         except Exception as e:
             baijiahao_logger.error(f"上传过程中出现错误: {e}")
+            # 尝试关闭浏览器资源
+            if context:
+                try:
+                    await context.close()
+                except:
+                    pass
+            if browser:
+                try:
+                    await browser.close()
+                except:
+                    pass
             raise
         finally:
             # 清理临时转换文件
@@ -271,7 +332,17 @@ class BaiJiaHaoVideo(object):
 
     @async_retry(timeout=300)  # 例如，最多重试3次，超时时间为180秒
     async def uploading_video(self, page):
+        start_time = time.time()
+        max_upload_time = 90  # 90秒上传超时
+        
         while True:
+            # 检查是否超时
+            current_time = time.time()
+            elapsed_time = current_time - start_time
+            if elapsed_time > max_upload_time:
+                baijiahao_logger.error(f"⚠️ 视频上传超时：已耗时{int(elapsed_time)}秒，超过{max_upload_time}秒限制")
+                return False
+                
             upload_failed = await page.locator('div .cover-overlay:has-text("上传失败")').count()
             if upload_failed:
                 baijiahao_logger.error("发现上传出错了...")
@@ -280,13 +351,13 @@ class BaiJiaHaoVideo(object):
 
             uploading = await page.locator('div .cover-overlay:has-text("上传中")').count()
             if uploading:
-                baijiahao_logger.info("正在上传视频中...")
+                baijiahao_logger.info(f"正在上传视频中... (已耗时{int(elapsed_time)}秒)")
                 await asyncio.sleep(2)  # 等待2秒再次检查
                 continue
 
             # 检查上传是否成功
             if not uploading and not upload_failed:
-                baijiahao_logger.success("视频上传完毕")
+                baijiahao_logger.success(f"视频上传完毕，共耗时{int(elapsed_time)}秒")
                 return True
 
     async def set_schedule_publish(self, page, publish_date):
@@ -306,12 +377,64 @@ class BaiJiaHaoVideo(object):
 
     @async_retry(timeout=300)  # 例如，最多重试3次，超时时间为180秒
     async def publish_video(self, page: Page, publish_date):
-        if publish_date != 0:
-            # 定时发布
-            await self.set_schedule_publish(page, publish_date)
-        else:
-            # 立即发布
-            await self.direct_publish(page)
+        start_time = time.time()
+        max_publish_time = 60  # 60秒发布超时
+        
+        try:
+            if publish_date != 0:
+                # 定时发布
+                await self.set_schedule_publish(page, publish_date)
+            else:
+                # 立即发布
+                await self.direct_publish(page)
+                
+            # 发布后检查状态
+            publish_success = False
+            while True:
+                # 检查是否超时
+                current_time = time.time()
+                elapsed_time = current_time - start_time
+                if elapsed_time > max_publish_time:
+                    baijiahao_logger.error(f"⚠️ 视频发布超时：已耗时{int(elapsed_time)}秒，超过{max_publish_time}秒限制")
+                    raise TimeoutError(f"视频发布超时：已耗时{int(elapsed_time)}秒")
+                
+                # 检查发布成功的提示
+                success_indicators = [
+                    "text=发布成功",
+                    "text=视频发布成功",
+                    "text=已发布",
+                    ".success-icon",
+                    ".publish-success"
+                ]
+                
+                for indicator in success_indicators:
+                    try:
+                        if await page.locator(indicator).count() > 0:
+                            publish_success = True
+                            baijiahao_logger.success(f"检测到发布成功提示: {indicator}")
+                            break
+                    except Exception:
+                        continue
+                
+                if publish_success:
+                    baijiahao_logger.success(f"视频发布成功，共耗时{int(elapsed_time)}秒")
+                    break
+                
+                # 检查是否已经跳转到列表页面
+                current_url = page.url
+                if "builder/rc/clue" in current_url:
+                    publish_success = True
+                    baijiahao_logger.success(f"检测到已跳转到列表页面，发布成功，共耗时{int(elapsed_time)}秒")
+                    break
+                
+                # 短暂等待后再次检查
+                await asyncio.sleep(1)
+        except TimeoutError as e:
+            baijiahao_logger.error(f"发布超时: {e}")
+            raise
+        except Exception as e:
+            baijiahao_logger.error(f"发布过程中出错: {e}")
+            raise
 
     async def direct_publish(self, page):
         try:
@@ -360,8 +483,25 @@ class BaiJiaHaoVideo(object):
         await title_container.fill(self.title[:30])
 
     async def main(self):
-        async with async_playwright() as playwright:
-            await self.upload(playwright)
+        # 添加超时控制
+        MAX_UPLOAD_TIME = 3 * 60  # 3分钟超时时间（秒）
+        
+        try:
+            # 创建一个任务，设置超时时间
+            async with async_playwright() as playwright:
+                # 使用asyncio.wait_for添加超时控制
+                try:
+                    await asyncio.wait_for(
+                        self.upload(playwright),
+                        timeout=MAX_UPLOAD_TIME
+                    )
+                    baijiahao_logger.success(f"视频发布任务已完成")
+                except asyncio.TimeoutError:
+                    baijiahao_logger.error(f"⚠️ 发布过程超过{MAX_UPLOAD_TIME//60}分钟，任务被强制终止")
+                    raise Exception(f"百家号发布超时：发布过程超过{MAX_UPLOAD_TIME//60}分钟，任务被强制终止")
+        except Exception as e:
+            baijiahao_logger.error(f"百家号发布失败: {e}")
+            raise
 
 
 
