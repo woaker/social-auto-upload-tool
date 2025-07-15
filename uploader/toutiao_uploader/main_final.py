@@ -15,6 +15,7 @@ import textwrap
 from datetime import datetime
 from playwright.async_api import Playwright, async_playwright
 import re
+import traceback
 
 # 添加项目根目录到路径
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -478,13 +479,20 @@ class TouTiaoArticle(object):
         
         # 可能的封面上传选择器
         cover_selectors = [
+            '.cover-upload-btn',
+            '.cover-upload-area',
+            '.cover-upload',
+            'div.cover-upload',
+            'div[class*="cover-upload"]',
+            'div[data-testid="cover-upload"]',
+            'div[aria-label*="封面"]',
+            'div[aria-label*="上传封面"]',
             'input[type="file"][accept*="image"]',
             'input[type="file"]',
             'button:has-text("上传封面")',
             'button:has-text("添加封面")',
             'div:has-text("上传封面")',
             '.upload-area',
-            '.cover-upload',
             '[class*="upload"]',
             '[class*="cover"]'
         ]
@@ -503,7 +511,291 @@ class TouTiaoArticle(object):
             except:
                 continue
         
+        # 尝试通过点击封面区域来触发上传
+        try:
+            # 查找可能的封面区域
+            cover_area_selectors = [
+                '.article-cover',
+                '.cover-area',
+                'div[class*="cover-area"]',
+                'div[class*="article-cover"]'
+            ]
+            
+            for selector in cover_area_selectors:
+                try:
+                    cover_area = page.locator(selector).first
+                    if await cover_area.count() > 0 and await cover_area.is_visible():
+                        douyin_logger.info(f"找到封面区域: {selector}")
+                        await cover_area.click()
+                        await asyncio.sleep(1)
+                        
+                        # 点击后再次查找上传元素
+                        for selector in cover_selectors:
+                            try:
+                                element = page.locator(selector).first
+                                if await element.count() > 0 and await element.is_visible():
+                                    douyin_logger.info(f"点击封面区域后找到上传元素: {selector}")
+                                    return element
+                            except:
+                                continue
+                except:
+                    continue
+        except:
+            pass
+        
         return None
+
+    async def select_from_material_library(self, page):
+        """从素材库中随机选择一张图片作为封面"""
+        douyin_logger.info("正在从素材库中选择封面...")
+        
+        try:
+            # 先关闭可能的弹窗
+            await self.close_ai_assistant(page)
+            
+            # 检查是否已经在素材选择界面
+            try:
+                current_url = page.url
+                douyin_logger.info(f"当前页面URL: {current_url}")
+                
+                # 获取当前页面HTML结构，用于调试
+                html_structure = await page.evaluate('() => document.body.innerHTML.substring(0, 1000)')
+                douyin_logger.info(f"页面HTML结构(前1000字符): {html_structure}")
+                
+                # 截图保存，用于调试
+                screenshot_path = os.path.join(project_root, "images", f"material_library_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+                await page.screenshot(path=screenshot_path)
+                douyin_logger.info(f"页面截图已保存: {screenshot_path}")
+            except Exception as e:
+                douyin_logger.warning(f"获取页面信息失败: {e}")
+            
+            # 根据截图中的DOM结构，精确定位"我的素材"标签
+            material_selectors = [
+                'div.byte-tabs-header-title.active:has-text("我的素材")',
+                'div.byte-tabs-header-title:has-text("我的素材")',
+                'div[class*="tabs-header-title"]:has-text("我的素材")',
+                'div.byte-tabs-header-title',  # 第4个标签通常是"我的素材"
+                'button:has-text("素材库")',
+                'button:has-text("我的素材")'
+            ]
+            
+            # 尝试点击素材库按钮
+            material_clicked = False
+            for selector in material_selectors:
+                try:
+                    # 如果是第4个标签选择器，尝试获取所有标签并点击第4个
+                    if selector == 'div.byte-tabs-header-title':
+                        tabs = await page.locator(selector).all()
+                        douyin_logger.info(f"找到 {len(tabs)} 个标签")
+                        
+                        # 打印所有标签文本，用于调试
+                        for i, tab in enumerate(tabs):
+                            try:
+                                tab_text = await tab.inner_text()
+                                douyin_logger.info(f"标签 {i+1}: {tab_text}")
+                            except:
+                                douyin_logger.info(f"标签 {i+1}: 无法获取文本")
+                        
+                        if len(tabs) >= 4:  # 确保有足够的标签
+                            fourth_tab = tabs[3]  # 第4个标签(索引从0开始)
+                            tab_text = await fourth_tab.inner_text()
+                            douyin_logger.info(f"找到第4个标签: {tab_text}")
+                            if "素材" in tab_text:
+                                await fourth_tab.click()
+                                await asyncio.sleep(2)
+                                douyin_logger.info(f"点击了第4个标签: {tab_text}")
+                                material_clicked = True
+                                break
+                    else:
+                        elements = await page.locator(selector).all()
+                        douyin_logger.info(f"选择器 '{selector}' 找到 {len(elements)} 个元素")
+                        
+                        if len(elements) > 0:
+                            material_btn = elements[0]
+                            is_visible = await material_btn.is_visible()
+                            douyin_logger.info(f"素材库按钮可见性: {is_visible}")
+                            
+                            if is_visible:
+                                # 获取按钮文本
+                                try:
+                                    btn_text = await material_btn.inner_text()
+                                    douyin_logger.info(f"找到素材库按钮: {selector}, 文本: {btn_text}")
+                                except:
+                                    douyin_logger.info(f"找到素材库按钮: {selector}, 无法获取文本")
+                                
+                                await material_btn.click()
+                                await asyncio.sleep(2)
+                                douyin_logger.info(f"点击了素材库按钮: {selector}")
+                                material_clicked = True
+                                break
+                except Exception as e:
+                    douyin_logger.warning(f"尝试选择器 '{selector}' 失败: {e}")
+                    continue
+            
+            # 如果没有找到"我的素材"标签，尝试查找并点击封面上传区域
+            if not material_clicked:
+                douyin_logger.info("未找到素材库按钮，尝试先点击封面上传区域...")
+                upload_element = await self.find_and_click_cover_upload(page)
+                if upload_element:
+                    await upload_element.click()
+                    await asyncio.sleep(2)
+                    douyin_logger.info("点击了封面上传区域")
+                    
+                    # 再次截图，用于调试
+                    screenshot_path = os.path.join(project_root, "images", f"after_click_upload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+                    await page.screenshot(path=screenshot_path)
+                    douyin_logger.info(f"点击上传区域后截图已保存: {screenshot_path}")
+                    
+                    # 再次尝试查找"我的素材"标签
+                    for selector in material_selectors:
+                        try:
+                            if selector == 'div.byte-tabs-header-title':
+                                tabs = await page.locator(selector).all()
+                                douyin_logger.info(f"点击上传后找到 {len(tabs)} 个标签")
+                                
+                                # 打印所有标签文本，用于调试
+                                for i, tab in enumerate(tabs):
+                                    try:
+                                        tab_text = await tab.inner_text()
+                                        douyin_logger.info(f"点击上传后标签 {i+1}: {tab_text}")
+                                    except:
+                                        douyin_logger.info(f"点击上传后标签 {i+1}: 无法获取文本")
+                                
+                                if len(tabs) >= 4:
+                                    fourth_tab = tabs[3]
+                                    tab_text = await fourth_tab.inner_text()
+                                    douyin_logger.info(f"点击封面上传后找到第4个标签: {tab_text}")
+                                    if "素材" in tab_text:
+                                        await fourth_tab.click()
+                                        await asyncio.sleep(2)
+                                        material_clicked = True
+                                        break
+                            else:
+                                elements = await page.locator(selector).all()
+                                douyin_logger.info(f"点击上传后选择器 '{selector}' 找到 {len(elements)} 个元素")
+                                
+                                if len(elements) > 0:
+                                    material_btn = elements[0]
+                                    is_visible = await material_btn.is_visible()
+                                    douyin_logger.info(f"点击上传后素材库按钮可见性: {is_visible}")
+                                    
+                                    if is_visible:
+                                        await material_btn.click()
+                                        await asyncio.sleep(2)
+                                        douyin_logger.info(f"点击封面上传后点击了素材库按钮: {selector}")
+                                        material_clicked = True
+                                        break
+                        except Exception as e:
+                            douyin_logger.warning(f"点击上传后尝试选择器 '{selector}' 失败: {e}")
+                            continue
+            
+            if not material_clicked:
+                douyin_logger.warning("未找到素材库按钮")
+                return False
+            
+            # 等待素材加载
+            await asyncio.sleep(3)
+            
+            # 再次截图，用于调试
+            screenshot_path = os.path.join(project_root, "images", f"after_material_tab_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+            await page.screenshot(path=screenshot_path)
+            douyin_logger.info(f"点击素材标签后截图已保存: {screenshot_path}")
+            
+            # 根据截图中的DOM结构，精确定位图片元素
+            image_selectors = [
+                'div.resource-item-img',
+                'div[class*="resource-item-img"]',
+                'span.img-span',
+                'span[class*="img-span"]',
+                '.image-item img',
+                '.material-item img',
+                '.cover-item img',
+                'img[class*="cover"]',
+                'img[class*="material"]',
+                '.material-library img',
+                'img[src*="image"]'
+            ]
+            
+            all_images = []
+            for selector in image_selectors:
+                try:
+                    images = await page.locator(selector).all()
+                    if images:
+                        douyin_logger.info(f"找到 {len(images)} 张素材库图片: {selector}")
+                        all_images.extend(images)
+                except Exception as e:
+                    douyin_logger.warning(f"使用选择器 '{selector}' 查找图片失败: {e}")
+                    continue
+            
+            if not all_images:
+                douyin_logger.warning("素材库中未找到图片")
+                return False
+            
+            douyin_logger.info(f"总共找到 {len(all_images)} 张素材库图片")
+            
+            # 随机选择一张图片
+            import random
+            selected_image = random.choice(all_images)
+            
+            # 点击选择该图片
+            try:
+                is_visible = await selected_image.is_visible()
+                douyin_logger.info(f"选中图片可见性: {is_visible}")
+                
+                await selected_image.click()
+                await asyncio.sleep(1)
+                douyin_logger.info("已点击选择图片")
+                
+                # 点击图片后截图，用于调试
+                screenshot_path = os.path.join(project_root, "images", f"after_select_image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+                await page.screenshot(path=screenshot_path)
+                douyin_logger.info(f"选择图片后截图已保存: {screenshot_path}")
+            except Exception as e:
+                douyin_logger.error(f"点击选择图片失败: {e}")
+                return False
+            
+            # 查找确认/使用按钮
+            confirm_selectors = [
+                'button:has-text("确定")',
+                'button:has-text("使用")',
+                'button:has-text("确认")',
+                'button:has-text("应用")',
+                '.confirm-btn',
+                '.submit-btn'
+            ]
+            
+            for selector in confirm_selectors:
+                try:
+                    elements = await page.locator(selector).all()
+                    douyin_logger.info(f"确认按钮选择器 '{selector}' 找到 {len(elements)} 个元素")
+                    
+                    if len(elements) > 0:
+                        confirm_btn = elements[0]
+                        is_visible = await confirm_btn.is_visible()
+                        douyin_logger.info(f"确认按钮可见性: {is_visible}")
+                        
+                        if is_visible:
+                            await confirm_btn.click()
+                            await asyncio.sleep(2)
+                            douyin_logger.info(f"点击了确认按钮: {selector}")
+                            
+                            # 点击确认后截图，用于调试
+                            screenshot_path = os.path.join(project_root, "images", f"after_confirm_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+                            await page.screenshot(path=screenshot_path)
+                            douyin_logger.info(f"点击确认后截图已保存: {screenshot_path}")
+                            
+                            return True
+                except Exception as e:
+                    douyin_logger.warning(f"尝试确认按钮选择器 '{selector}' 失败: {e}")
+                    continue
+            
+            douyin_logger.warning("未找到确认按钮，但可能已经选择了图片")
+            return True
+            
+        except Exception as e:
+            douyin_logger.error(f"从素材库选择图片失败: {e}")
+            traceback.print_exc()
+            return False
 
     async def upload_cover(self, page):
         """上传封面图片"""
@@ -512,9 +804,34 @@ class TouTiaoArticle(object):
         # 先关闭可能的弹窗
         await self.close_ai_assistant(page)
         
-        # 如果没有指定封面，创建默认封面
-        if not self.cover_path or not os.path.exists(self.cover_path):
-            douyin_logger.info("未指定封面图片，创建默认封面...")
+        # 先尝试查找并点击封面上传区域
+        upload_element = await self.find_and_click_cover_upload(page)
+        if not upload_element:
+            douyin_logger.warning("未找到封面上传区域，可能影响后续操作")
+        else:
+            # 点击上传元素以触发封面上传界面
+            try:
+                tag_name = await upload_element.evaluate('el => el.tagName.toLowerCase()')
+                if tag_name != 'input':
+                    await upload_element.click()
+                    await asyncio.sleep(2)
+                    douyin_logger.info("点击了封面上传区域")
+            except Exception as e:
+                douyin_logger.warning(f"点击封面上传区域失败: {e}")
+        
+        # 无论是否有封面，都尝试从素材库选择
+        douyin_logger.info("尝试从素材库选择封面...")
+        material_success = await self.select_from_material_library(page)
+        if material_success:
+            douyin_logger.info("✅ 成功从素材库选择封面")
+            return True
+            
+        # 如果素材库选择失败，但有指定封面，则尝试上传
+        if self.cover_path and os.path.exists(self.cover_path):
+            douyin_logger.info(f"从素材库选择失败，使用指定封面: {self.cover_path}")
+        else:
+            # 如果没有指定封面且素材库选择失败，创建默认封面
+            douyin_logger.info("从素材库选择失败，创建默认封面...")
             self.cover_path = await self.create_default_cover(self.title)
             
             if not self.cover_path:
@@ -524,7 +841,7 @@ class TouTiaoArticle(object):
         douyin_logger.info(f"使用封面图片: {self.cover_path}")
         
         try:
-            # 查找上传元素
+            # 重新查找上传元素
             upload_element = await self.find_and_click_cover_upload(page)
             
             if upload_element:

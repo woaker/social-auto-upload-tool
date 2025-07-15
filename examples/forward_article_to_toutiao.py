@@ -1809,6 +1809,7 @@ class AIContentEnhancer:
     def __init__(self, api_key: Optional[str] = None):
         """初始化AI内容增强器"""
         self.api_key = api_key or os.getenv('OPENAI_API_KEY')
+        print(f"API Key: {self.api_key}")
         if self.api_key:
             openai.api_key = self.api_key
         self.model = "gpt-3.5-turbo-16k"
