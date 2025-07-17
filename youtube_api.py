@@ -66,7 +66,7 @@ app.add_middleware(
 
 # 定义请求模型
 class YouTubeDownloadRequest(BaseModel):
-    url: HttpUrl = Field(..., description="YouTube视频URL")
+    url: List[HttpUrl] = Field(..., description="YouTube视频URL列表，支持传入多个视频地址")
     platforms: List[str] = Field(default=["douyin","bilibili","kuaishou","xiaohongshu","baijiahao"], description="要转发的平台列表，支持：douyin, bilibili, kuaishou, xiaohongshu, baijiahao，或使用'all'表示所有平台")
     title: Optional[str] = Field(default=None, description="自定义视频标题，如不提供则使用YouTube标题")
     tags: Optional[List[str]] = Field(default=["MCP","AI","互联网","自动化","技术"], description="视频标签列表")
@@ -348,25 +348,34 @@ async def process_youtube_video(task_id: str, request: YouTubeDownloadRequest):
         request: 请求参数
     """
     try:
+        logger.info(f"============>开始处理YouTube视频: {request.url}")
         # 更新任务状态
         task_status[task_id] = {"status": "downloading", "message": "正在下载YouTube视频"}
         
-        # 下载YouTube视频
-        video_path = await download_youtube_video(str(request.url))
+        all_results = {}
         
-        # 准备视频上传
-        task_status[task_id] = {"status": "processing", "message": "正在处理视频"}
-        video_info = await prepare_video_for_upload(video_path, request.title, request.tags)
-        
-        # 上传到各平台
-        task_status[task_id] = {"status": "uploading", "message": "正在上传视频到各平台"}
-        results = await upload_to_platforms(video_info, request.platforms, request.schedule_time)
+        # 处理每个URL
+        for url in request.url:
+            # 下载YouTube视频
+            video_path = await download_youtube_video(str(url))
+            
+            # 准备视频上传
+            task_status[task_id] = {"status": "processing", "message": f"正在处理视频: {url}"}
+            video_info = await prepare_video_for_upload(video_path, request.title, request.tags)
+            
+            # 上传到各平台
+            task_status[task_id] = {"status": "uploading", "message": f"正在上传视频到各平台: {url}"}
+            results = await upload_to_platforms(video_info, request.platforms, request.schedule_time)
+            
+            # 将结果添加到总结果中
+            url_key = str(url)
+            all_results[url_key] = results
         
         # 更新任务状态
         task_status[task_id] = {
             "status": "completed", 
             "message": "处理完成", 
-            "results": results
+            "results": all_results
         }
         
     except Exception as e:
