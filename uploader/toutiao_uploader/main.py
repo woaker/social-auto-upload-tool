@@ -956,7 +956,7 @@ class TouTiaoArticle(object):
             
             # 保存截图用于调试
             screenshot_path = f"toutiao_publish_result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-            await page.screenshot(path=screenshot_path, full_page=True)
+            # await page.screenshot(path=screenshot_path, full_page=True)
             douyin_logger.info(f"📸 截图已保存: {screenshot_path}")
             
         except Exception as e:
@@ -978,7 +978,6 @@ class TouTiaoArticle(object):
             print("2. 登录头条创作者中心确认文章是否发布成功")
             print("3. 检查截图文件了解详细情况")
             print("="*50)
-            input("按回车键关闭浏览器...")
             
             await context.close()
             await browser.close()

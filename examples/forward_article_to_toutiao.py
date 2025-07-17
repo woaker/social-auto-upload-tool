@@ -25,6 +25,8 @@ from typing import Optional, Dict, List
 import json
 import argparse
 import traceback
+import math
+import random
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -50,6 +52,9 @@ class WechatSyncStyleFormatter:
         """简化的Markdown到文本转换 - 优化版"""
         if not text:
             return ""
+        
+        # 处理没有空格的标题格式（例如 "##前言" 变成 "## 前言"）
+        text = re.sub(r'^(#{1,6})([^#\s])', r'\1 \2', text, flags=re.MULTILINE)
         
         # 处理标题
         text = re.sub(r'^#{1}\s+(.+)$', r'\n# \1\n', text, flags=re.MULTILINE)
@@ -246,6 +251,14 @@ class WechatSyncStyleFormatter:
         text = text.strip()
         prefix = "#" * level
         
+        # 为标题添加表情符号，使其更加醒目
+        if level <= 3 and len(text) < 30:  # 只为较短的主要标题添加表情符号
+            for keyword, emoji in self.code_languages.items():
+                if keyword.lower() in text.lower():
+                    text = f"{emoji} {text}"
+                    break
+        
+        # 确保标题前后有足够的空行
         return f"\n\n{prefix} {text}\n\n"
     
     def _format_code_block(self, code_text, language=''):
@@ -385,6 +398,35 @@ class EnhancedArticleForwarder:
                 '步骤': '📝', '方法': '🔧', '技巧': '💡',
                 '问题': '❓', '解决': '✅', '错误': '❌',
                 '性能': '⚡', '安全': '🔒', '测试': '🧪'
+            },
+            'code_languages': {
+                'python': 'Python',
+                'java': 'Java',
+                'javascript': 'JavaScript',
+                'js': 'JavaScript',
+                'typescript': 'TypeScript',
+                'ts': 'TypeScript',
+                'html': 'HTML',
+                'css': 'CSS',
+                'php': 'PHP',
+                'ruby': 'Ruby',
+                'go': 'Go',
+                'rust': 'Rust',
+                'c': 'C',
+                'cpp': 'C++',
+                'csharp': 'C#',
+                'swift': 'Swift',
+                'kotlin': 'Kotlin',
+                'sql': 'SQL',
+                'bash': 'Bash',
+                'shell': 'Shell',
+                'json': 'JSON',
+                'xml': 'XML',
+                'yaml': 'YAML',
+                'markdown': 'Markdown',
+                'md': 'Markdown',
+                'plaintext': '纯文本',
+                'text': '纯文本'
             }
         }
     
@@ -712,7 +754,7 @@ class EnhancedArticleForwarder:
         
         # 检测语言
         language = self._detect_code_language(code_elem)
-        lang_display = self.content_enhancers['code_languages'].get(language, language)
+        lang_display = self.content_enhancers.get('code_languages', {}).get(language, language)
         
         # 清理代码文本
         code_text = code_text.strip()
@@ -1099,6 +1141,10 @@ class EnhancedArticleForwarder:
         print(f"🌐 正在获取文章: {url}")
         
         try:
+            # 检查是否为知乎链接
+            if 'zhihu.com' in url:
+                return await self._fetch_zhihu_article(url)
+            
             # 发送HTTP请求
             response = requests.get(url, headers=self.headers, timeout=30)
             response.encoding = 'utf-8'
@@ -1134,28 +1180,182 @@ class EnhancedArticleForwarder:
         except Exception as e:
             print(f"❌ 获取文章失败: {e}")
             return None, None, None
+            
+    async def _fetch_zhihu_article(self, url):
+        """使用Playwright模拟浏览器获取知乎文章内容"""
+        print("🔍 检测到知乎链接，使用浏览器模拟访问...")
+        
+        try:
+            # 从URL中提取文章ID
+            article_id = url.split('/')[-1]
+            print(f"📝 知乎文章ID: {article_id}")
+            
+            # 使用Playwright模拟浏览器访问
+            async with async_playwright() as playwright:
+                # 使用有界面模式以便观察
+                browser = await playwright.chromium.launch(headless=False)
+                
+                # 创建上下文并添加反爬虫措施
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    viewport={"width": 1280, "height": 800},
+                    device_scale_factor=1,
+                )
+                
+                # 添加stealth.js脚本来绕过反爬虫检测
+                stealth_js_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "utils/stealth.min.js")
+                if os.path.exists(stealth_js_path):
+                    with open(stealth_js_path, "r") as f:
+                        stealth_js = f.read()
+                    await context.add_init_script(stealth_js)
+                
+                # 创建页面
+                page = await context.new_page()
+                
+                # 设置超时
+                page.set_default_timeout(60000)  # 60秒超时
+                
+                # 访问知乎文章页面
+                print(f"🌐 正在访问知乎文章: {url}")
+                await page.goto(url)
+                
+                # 检查是否有验证码或登录弹窗
+                print("⏳ 等待页面加载，检查是否有验证码...")
+                await page.wait_for_load_state("networkidle")
+                
+                # 等待一段时间，让页面完全加载
+                await page.wait_for_timeout(5000)
+                
+                # 检查是否需要处理验证码
+                if await page.query_selector('.Captcha') or await page.query_selector('.SignFlowInput'):
+                    print("⚠️ 检测到验证码或登录弹窗，需要人工处理")
+                    print("请在打开的浏览器中完成验证，然后脚本将继续...")
+                    
+                    # 等待用户处理验证码
+                    await page.wait_for_selector('.Post-Title, .QuestionHeader-title, .ArticleHeader-title', timeout=120000)
+                
+                # 再次等待页面加载
+                await page.wait_for_load_state("networkidle")
+                await page.wait_for_timeout(2000)
+                
+                # 截图用于调试
+                screenshot_path = "zhihu_debug.png"
+                await page.screenshot(path=screenshot_path)
+                print(f"📸 页面截图已保存: {screenshot_path}")
+                
+                # 尝试获取标题
+                title_selectors = [
+                    '.Post-Title', 
+                    '.QuestionHeader-title', 
+                    '.ArticleHeader-title',
+                    'h1'
+                ]
+                
+                title = "未知标题"
+                for selector in title_selectors:
+                    title_element = await page.query_selector(selector)
+                    if title_element:
+                        title = await title_element.text_content()
+                        title = title.strip()
+                        if title:
+                            break
+                
+                # 尝试获取内容
+                content_selectors = [
+                    '.Post-RichTextContainer', 
+                    '.QuestionRichText',
+                    '.RichText',
+                    '.Post-RichText',
+                    'article'
+                ]
+                
+                content_html = ""
+                for selector in content_selectors:
+                    try:
+                        content_html = await page.evaluate(f"""() => {{
+                            const element = document.querySelector('{selector}');
+                            return element ? element.innerHTML : '';
+                        }}""")
+                        
+                        if content_html:
+                            break
+                    except Exception as e:
+                        print(f"尝试选择器 {selector} 失败: {e}")
+                
+                if not content_html:
+                    # 如果所有选择器都失败，尝试获取整个页面内容
+                    content_html = await page.content()
+                
+                # 使用BeautifulSoup解析HTML
+                soup = BeautifulSoup(content_html, 'html.parser')
+                
+                # 移除不需要的元素
+                for unwanted in soup.select('.CommentBox, .Reward, .FollowButton, .VoteButton, .ContentItem-actions'):
+                    if unwanted:
+                        unwanted.decompose()
+                
+                # 转换为Markdown
+                content = self._html_to_markdown_enhanced(soup)
+                
+                # 提取标签
+                tags = []
+                tag_selectors = ['.Tag-content .Tag-label', '.TopicLink', '.Tag']
+                
+                for selector in tag_selectors:
+                    tag_elements = await page.query_selector_all(selector)
+                    for tag_element in tag_elements:
+                        tag_text = await tag_element.text_content()
+                        if tag_text and tag_text.strip():
+                            tags.append(tag_text.strip())
+                    
+                    if tags:
+                        break
+                
+                # 如果没有找到标签，使用默认标签
+                if not tags:
+                    tags = ['知乎', '文章转发']
+                
+                # 关闭浏览器
+                await browser.close()
+                
+                # 检查内容是否有效
+                if len(content) < 100:
+                    print(f"⚠️ 获取的内容过短，可能未成功抓取: {len(content)} 字符")
+                    return None, None, None
+                
+                print(f"✅ 知乎文章获取成功:")
+                print(f"📝 标题: {title}")
+                print(f"📊 内容长度: {len(content)} 字符")
+                print(f"🏷️ 标签: {tags}")
+                
+                return title, content, tags
+                
+        except Exception as e:
+            print(f"❌ 知乎文章获取失败: {e}")
+            traceback.print_exc()  # 打印完整错误堆栈，便于调试
+            return None, None, None
     
     def _enhance_content_format(self, title, content, url, use_rich_text=True):
         """增强内容格式化 - V3版本"""
         if not content:
             return ""
         
-        # 添加文章来源信息
-        source_info = f"""
-> **原文链接**: {url}
-> **转发时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-> **内容优化**: 已优化排版格式，提升阅读体验
+        # 移除原文链接和转发时间信息，今日头条不需要这些
+        # source_info = f"""
+        # > **原文链接**: {url}
+        # > **转发时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+        # > **内容优化**: 已优化排版格式，提升阅读体验
 
----
+        # ---
 
-"""
+        # """
         
         # 处理正文内容
         content = content.strip()
         
-        # 1. 优化标题格式
-        if title and not content.startswith('# '):
-            content = f"# {title}\n\n{content}"
+        # 1. 不再添加标题到内容中，因为今日头条已经有单独的标题字段
+        # if title and not content.startswith('# '):
+        #     content = f"# {title}\n\n{content}"
         
         # 2. 优化段落格式
         paragraphs = content.split('\n\n')
@@ -1166,8 +1366,16 @@ class EnhancedArticleForwarder:
             if not para:
                 continue
                 
-            # 处理标题
-            if para.startswith('#'):
+            # 处理标题 - 确保markdown标题正确转换
+            if re.match(r'^#{1,6}\s+', para):
+                # 确保标题格式正确，例如 "## 标题" 而不是 "#＃ 标题"
+                para = re.sub(r'^(#{1,6})\s*', r'\1 ', para)
+                formatted_paragraphs.append(f"\n{para}\n")
+                continue
+            
+            # 处理可能被错误格式化的标题（例如 "##前言" 没有空格）
+            if re.match(r'^#{1,6}[^#\s]', para):
+                para = re.sub(r'^(#{1,6})([^#\s])', r'\1 \2', para)
                 formatted_paragraphs.append(f"\n{para}\n")
                 continue
             
@@ -1209,8 +1417,8 @@ class EnhancedArticleForwarder:
         # 3. 合并处理后的内容
         content = '\n\n'.join(formatted_paragraphs)
         
-        # 4. 添加文章来源信息
-        content = source_info + content
+        # 4. 不再添加文章来源信息
+        # content = source_info + content
         
         # 5. 最终的格式清理
         content = re.sub(r'\n{3,}', '\n\n', content)  # 删除多余的空行
@@ -1218,12 +1426,67 @@ class EnhancedArticleForwarder:
         content = content.strip()
         
         if use_rich_text:
-            print("🎨 正在使用wechatSync简洁风格格式化器处理内容...")
-            content = self.formatter.markdown_to_text(content)
-            print(f"✅ 内容格式化完成，最终长度: {len(content)} 字符")
-            print("📝 格式化特性: 简洁标题、清晰代码块、适当段落间距")
-        
-        return content
+            print("🎨 正在将Markdown转换为富文本格式...")
+            
+            # 使用 markdown 库将 Markdown 转换为 HTML
+            import markdown
+            html_content = markdown.markdown(
+                content,
+                extensions=[
+                    'markdown.extensions.extra',
+                    'markdown.extensions.codehilite',
+                    'markdown.extensions.tables',
+                    'markdown.extensions.nl2br'
+                ]
+            )
+            
+            # 添加基本样式
+            html_content = f"""
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; line-height: 1.6; color: #333;">
+                {html_content}
+            </div>
+            """
+            
+            # 使用今日头条富文本编辑器支持的格式
+            # 替换标题样式
+            html_content = re.sub(r'<h1>(.*?)</h1>', r'<h1 style="font-size: 24px; font-weight: bold; margin: 20px 0 10px;">\1</h1>', html_content)
+            html_content = re.sub(r'<h2>(.*?)</h2>', r'<h2 style="font-size: 20px; font-weight: bold; margin: 18px 0 9px;">\1</h2>', html_content)
+            html_content = re.sub(r'<h3>(.*?)</h3>', r'<h3 style="font-size: 18px; font-weight: bold; margin: 16px 0 8px;">\1</h3>', html_content)
+            
+            # 替换代码块样式
+            html_content = re.sub(
+                r'<pre><code>(.*?)</code></pre>',
+                r'<pre style="background-color: #f6f8fa; border-radius: 3px; padding: 10px; overflow: auto;"><code>\1</code></pre>',
+                html_content,
+                flags=re.DOTALL
+            )
+            
+            # 替换行内代码样式
+            html_content = re.sub(
+                r'<code>(.*?)</code>',
+                r'<code style="background-color: #f6f8fa; border-radius: 3px; padding: 2px 4px; font-family: monospace;">\1</code>',
+                html_content
+            )
+            
+            # 替换引用块样式
+            html_content = re.sub(
+                r'<blockquote>(.*?)</blockquote>',
+                r'<blockquote style="border-left: 4px solid #ddd; padding-left: 10px; margin-left: 0; color: #666;">\1</blockquote>',
+                html_content,
+                flags=re.DOTALL
+            )
+            
+            # 替换列表样式
+            html_content = re.sub(r'<ul>', r'<ul style="padding-left: 20px;">', html_content)
+            html_content = re.sub(r'<ol>', r'<ol style="padding-left: 20px;">', html_content)
+            
+            print(f"✅ HTML格式化完成，最终长度: {len(html_content)} 字符")
+            print("📝 格式化特性: HTML富文本、美化标题、代码高亮、适当段落间距")
+            
+            return html_content
+        else:
+            # 返回 Markdown 格式（用于保存文件）
+            return content
     
     def _optimize_content_spacing(self, content):
         """优化内容间距 - V2版本"""
@@ -1413,18 +1676,48 @@ class EnhancedArticleForwarder:
         if not content:
             return ""
         
-        # 标题表情映射
+        # 标题表情映射 - 扩展版
         title_emoji_map = {
-            '介绍': '📝', '简介': '📝',
-            '安装': '⚙️', '配置': '⚙️',
-            '使用': '🔨', '用法': '🔨',
-            '示例': '💡', '例子': '💡',
-            '注意': '⚠️', '警告': '⚠️',
-            '总结': '📌', '结论': '📌',
-            '问题': '❓', '解决': '✅',
-            '特性': '✨', '功能': '✨',
-            '步骤': '📋', '流程': '📋',
-            '代码': '💻', '实现': '💻'
+            # 基础章节
+            '介绍': '📝', '简介': '📝', '前言': '📝', '概述': '📝',
+            '背景': '🔍', '目标': '🎯', '动机': '💡', '原理': '🔬',
+            
+            # 技术相关
+            '安装': '⚙️', '配置': '⚙️', '设置': '⚙️', '环境': '⚙️',
+            '使用': '🔨', '用法': '🔨', '实践': '🔨', '操作': '🔨',
+            '示例': '💡', '例子': '💡', '案例': '💡', '演示': '💡',
+            '代码': '💻', '实现': '💻', '编码': '💻', '程序': '💻',
+            '架构': '🏗️', '设计': '📐', '模式': '🧩', '结构': '🔧',
+            '测试': '🧪', '调试': '🔍', '优化': '⚡', '性能': '⚡',
+            
+            # 提示和警告
+            '注意': '⚠️', '警告': '⚠️', '提示': '💡', '建议': '💡',
+            '问题': '❓', '解决': '✅', '错误': '❌', '异常': '⚠️',
+            '常见问题': '❓', 'FAQ': '❓', '疑难解答': '🔧',
+            
+            # 总结类
+            '总结': '📌', '结论': '📌', '小结': '📌', '回顾': '📌',
+            '展望': '🔭', '未来': '🔮', '计划': '📅', '路线图': '🗺️',
+            
+            # 功能和特性
+            '特性': '✨', '功能': '✨', '特点': '✨', '亮点': '✨',
+            '优点': '👍', '缺点': '👎', '优势': '👍', '劣势': '👎',
+            
+            # 流程和步骤
+            '步骤': '📋', '流程': '📋', '过程': '📋', '阶段': '📋',
+            '方法': '🔧', '技巧': '💡', '策略': '🎯', '实战': '⚔️',
+            
+            # 面试相关
+            '面试': '🎯', '题目': '📝', '解答': '✅', '分析': '🔍',
+            
+            # 框架和语言
+            'Vue': '💚', 'React': '⚛️', 'Angular': '🅰️', 'Node': '📦',
+            'Python': '🐍', 'Java': '☕', 'JavaScript': '📜', 'TypeScript': '📘',
+            'Go': '🐹', 'Rust': '🦀', 'C++': '⚙️', 'PHP': '🐘',
+            
+            # 数据相关
+            '数据': '📊', '统计': '📈', '分析': '📉', '可视化': '📊',
+            '算法': '🧮', '模型': '🧠', '学习': '📚', '训练': '🏋️'
         }
         
         # 为标题添加表情
@@ -1441,8 +1734,23 @@ class EnhancedArticleForwarder:
             
             if emoji:
                 return f"{'#' * level} {emoji} {title}"
+            
+            # 如果没有匹配的关键词，根据标题级别添加默认表情
+            if level == 1:
+                return f"# 📑 {title}"  # 主标题
+            elif level == 2:
+                return f"## 📌 {title}"  # 二级标题
+            elif level == 3:
+                return f"### 📎 {title}"  # 三级标题
+            
             return match.group(0)
         
+        # 处理标准格式的标题
+        content = re.sub(r'^(#{1,6})\s+(.+)$', add_title_emoji, content, flags=re.MULTILINE)
+        
+        # 处理可能没有空格的标题格式
+        content = re.sub(r'^(#{1,6})([^#\s].+)$', r'\1 \2', content, flags=re.MULTILINE)
+        # 再次应用表情符号
         content = re.sub(r'^(#{1,6})\s+(.+)$', add_title_emoji, content, flags=re.MULTILINE)
         
         return content
@@ -1690,6 +1998,7 @@ class AIContentEnhancer:
     def __init__(self, api_key: Optional[str] = None):
         """初始化AI内容增强器"""
         self.api_key = api_key or os.getenv('OPENAI_API_KEY')
+        print(f"API Key: {self.api_key}")
         if self.api_key:
             openai.api_key = self.api_key
         self.model = "gpt-3.5-turbo-16k"
@@ -1715,6 +2024,7 @@ class AIContentEnhancer:
             8. 适当添加要点符号
             9. 保持专业性和可读性的平衡
             10. 输出格式必须是Markdown
+            11. 不要在内容开头添加文章标题，标题将单独处理
 
             原标题: {title}
             标签: {', '.join(tags)}
@@ -1738,11 +2048,19 @@ class AIContentEnhancer:
             enhanced_content = response.choices[0].message.content.strip()
             
             # 提取优化后的标题（如果AI生成了新标题）
+            new_title = title
             if enhanced_content.startswith('# '):
-                new_title = enhanced_content.split('\n')[0].lstrip('# ').strip()
+                # 提取AI生成的标题
+                first_line = enhanced_content.split('\n')[0]
+                potential_title = first_line.lstrip('# ').strip()
+                if potential_title:  # 如果有内容，使用它作为新标题
+                    new_title = potential_title
+                # 无论如何，从内容中移除标题行
                 enhanced_content = '\n'.join(enhanced_content.split('\n')[1:]).strip()
-            else:
-                new_title = title
+            
+            # 再次检查是否有标题格式的行（有时AI会添加多个标题）
+            if enhanced_content.startswith('# '):
+                enhanced_content = re.sub(r'^#\s+.*?\n', '', enhanced_content, count=1, flags=re.MULTILINE)
             
             print("✨ AI内容优化完成")
             return {
@@ -1773,7 +2091,7 @@ class AIContentEnhancer:
             文章标题: {title}
             
             文章内容:
-            {content[:1000]}  # 只使用前1000个字符
+            {content[:2000]}  # 只使用前2000个字符
             """
             
             # 调用OpenAI API
@@ -1796,7 +2114,7 @@ class AIContentEnhancer:
             print(f"⚠️ AI标签生成出现错误: {str(e)}")
             return []
 
-async def forward_article_from_url(url, account_file="cookies/toutiao_uploader/account.json", save_file=True):
+async def forward_article_from_url(url, account_file="cookiesFile/toutiao_cookie.json", save_file=True):
     """从URL转发文章到今日头条"""
     try:
         # 检查登录状态
@@ -1839,7 +2157,7 @@ async def forward_article_from_url(url, account_file="cookies/toutiao_uploader/a
         print(f"❌ 获取文章失败: {str(e)}")
         return None
 
-async def publish_article_to_toutiao(title, content, tags, url, account_file="cookies/toutiao_uploader/account.json"):
+async def publish_article_to_toutiao(title, content, tags, url, account_file="cookiesFile/toutiao_cookie.json"):
     """发布文章到今日头条"""
     print(f"\n⚠️ 即将转发文章到今日头条:")
     print(f"📰 标题: {title}")
@@ -1850,14 +2168,9 @@ async def publish_article_to_toutiao(title, content, tags, url, account_file="co
     print(f"🔄 格式: Markdown → 富文本格式")
     print(f"🔒 验证码: 如遇验证码将等待用户输入")
     
-    try:
-        confirm = input("\n确认转发吗？(y/N): ").strip().lower()
-        if confirm not in ['y', 'yes']:
-            print("❌ 用户取消转发")
-            return False
-    except EOFError:
-        print("\n📋 检测到非交互模式，自动确认转发")
-        print("⚠️ 注意: 如遇验证码，请在浏览器中手动输入")
+    # 自动确认转发，不再需要用户输入y
+    print("\n📋 自动确认转发")
+    print("⚠️ 注意: 如遇验证码，请在浏览器中手动输入")
     
     # 创建转发器
     forwarder = EnhancedArticleForwarder()
@@ -1890,7 +2203,7 @@ async def main():
 
     # 显示参数信息
     print(f"🔗 目标链接: {args.url}")
-    print(f"🔑 账号文件: cookies/toutiao_uploader/account.json")
+    print(f"🔑 账号文件: cookiesFile/toutiao_cookie.json")
     print(f"💾 保存文件: {'是' if args.save_file else '否'}")
     print(f"👀 预览模式: {'是' if args.preview else '否'}")
     print(f"🤖 AI增强: {'是' if args.use_ai else '否'}")
