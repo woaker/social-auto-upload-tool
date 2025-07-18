@@ -29,9 +29,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 全局任务队列和状态
-task_queue = asyncio.Queue(maxsize=100)
+# 全局任务状态
 task_status = {}
+
+# 创建独立的任务队列
+toutiao_task_queue = asyncio.Queue(maxsize=50)  # 头条转发任务队列
+youtube_task_queue = asyncio.Queue(maxsize=50)  # YouTube下载任务队列
 
 # 头条文章转发相关模型
 class ToutiaoForwardRequest(BaseModel):
@@ -85,12 +88,13 @@ async def forward_article_to_toutiao(request: ToutiaoForwardRequest):
     task_status[task_id] = {
         "status": "queued",
         "message": "任务已加入队列",
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now().isoformat(),
+        "type": "toutiao_forward"
     }
     
     # 将任务加入队列
     try:
-        task_queue.put_nowait({
+        toutiao_task_queue.put_nowait({
             "task_id": task_id,
             "type": "toutiao_forward",
             "data": request.model_dump()
@@ -138,12 +142,13 @@ async def download_youtube_video(request: YouTubeDownloadRequest):
     task_status[task_id] = {
         "status": "queued",
         "message": "任务已加入队列",
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now().isoformat(),
+        "type": "youtube_download"
     }
     
     # 将任务加入队列
     try:
-        task_queue.put_nowait({
+        youtube_task_queue.put_nowait({
             "task_id": task_id,
             "type": "youtube_download",
             "data": request.model_dump()
@@ -175,30 +180,84 @@ async def get_task_status(task_id: str):
         result=task_info.get("result")
     )
 
+# 查看所有任务队列执行日志接口
+@app.get("/api/tasks/logs")
+async def get_all_task_logs():
+    """查看所有任务队列的执行日志"""
+    try:
+        logs = []
+        for task_id, task_info in task_status.items():
+            log_entry = {
+                "task_id": task_id,
+                "type": task_info.get("type", "unknown"),
+                "status": task_info["status"],
+                "message": task_info["message"],
+                "created_at": task_info.get("created_at"),
+                "completed_at": task_info.get("completed_at"),
+                "result": task_info.get("result")
+            }
+            logs.append(log_entry)
+        
+        # 按创建时间倒序排列
+        logs.sort(key=lambda x: x["created_at"] or "", reverse=True)
+        
+        return {
+            "total_tasks": len(logs),
+            "tasks": logs
+        }
+    except Exception as e:
+        logger.error(f"获取任务日志失败: {e}")
+        raise HTTPException(status_code=500, detail="获取任务日志失败")
+
+
+
 # 后台任务处理器
-async def task_worker():
-    """后台任务处理worker"""
+async def toutiao_task_worker():
+    """头条任务处理worker"""
     while True:
         try:
-            task = await task_queue.get()
+            task = await toutiao_task_queue.get()
             task_id = task["task_id"]
             task_type = task["type"]
             task_data = task["data"]
             
-            logger.info(f"开始处理任务: {task_id}, 类型: {task_type}")
+            logger.info(f"开始处理头条任务: {task_id}, 类型: {task_type}")
             task_status[task_id]["status"] = "processing"
             task_status[task_id]["message"] = "正在处理中..."
             
             if task_type == "toutiao_forward":
                 await process_toutiao_forward(task_id, task_data)
-            elif task_type == "youtube_download":
+            else:
+                task_status[task_id]["status"] = "error"
+                task_status[task_id]["message"] = "未知任务类型"
+                
+        except Exception as e:
+            logger.error(f"头条任务处理失败: {e}")
+            if "task_id" in locals():
+                task_status[task_id]["status"] = "error"
+                task_status[task_id]["message"] = f"处理失败: {str(e)}"
+
+async def youtube_task_worker():
+    """YouTube任务处理worker"""
+    while True:
+        try:
+            task = await youtube_task_queue.get()
+            task_id = task["task_id"]
+            task_type = task["type"]
+            task_data = task["data"]
+            
+            logger.info(f"开始处理YouTube任务: {task_id}, 类型: {task_type}")
+            task_status[task_id]["status"] = "processing"
+            task_status[task_id]["message"] = "正在处理中..."
+            
+            if task_type == "youtube_download":
                 await process_youtube_download(task_id, task_data)
             else:
                 task_status[task_id]["status"] = "error"
                 task_status[task_id]["message"] = "未知任务类型"
                 
         except Exception as e:
-            logger.error(f"任务处理失败: {e}")
+            logger.error(f"YouTube任务处理失败: {e}")
             if "task_id" in locals():
                 task_status[task_id]["status"] = "error"
                 task_status[task_id]["message"] = f"处理失败: {str(e)}"
@@ -223,16 +282,20 @@ async def process_toutiao_forward(task_id: str, data: dict):
             task_status[task_id]["status"] = "completed"
             task_status[task_id]["message"] = "转发成功"
             task_status[task_id]["result"] = {"output": result.stdout}
+            task_status[task_id]["completed_at"] = datetime.now().isoformat()
         else:
             task_status[task_id]["status"] = "error"
             task_status[task_id]["message"] = f"转发失败: {result.stderr}"
+            task_status[task_id]["completed_at"] = datetime.now().isoformat()
             
     except subprocess.TimeoutExpired:
         task_status[task_id]["status"] = "error"
         task_status[task_id]["message"] = "任务超时"
+        task_status[task_id]["completed_at"] = datetime.now().isoformat()
     except Exception as e:
         task_status[task_id]["status"] = "error"
         task_status[task_id]["message"] = f"处理异常: {str(e)}"
+        task_status[task_id]["completed_at"] = datetime.now().isoformat()
 
 async def process_youtube_download(task_id: str, data: dict):
     """处理YouTube视频下载任务"""
@@ -282,14 +345,17 @@ async def process_youtube_download(task_id: str, data: dict):
     except subprocess.TimeoutExpired:
         task_status[task_id]["status"] = "error"
         task_status[task_id]["message"] = "任务超时"
+        task_status[task_id]["completed_at"] = datetime.now().isoformat()
     except Exception as e:
         task_status[task_id]["status"] = "error"
         task_status[task_id]["message"] = f"处理异常: {str(e)}"
+        task_status[task_id]["completed_at"] = datetime.now().isoformat()
 
 @app.on_event("startup")
 async def startup_event():
     """服务启动时启动后台worker"""
-    asyncio.create_task(task_worker())
+    asyncio.create_task(toutiao_task_worker())
+    asyncio.create_task(youtube_task_worker())
     logger.info("统一API服务已启动，后台worker已启动")
 
 if __name__ == "__main__":

@@ -104,7 +104,7 @@ async def download_youtube_video(url: str) -> str:
         # 下载选项
         ydl_opts = {
             'format': 'best[ext=mp4]/best',  # 优先下载mp4格式
-            'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
+            'outtmpl': os.path.join(temp_dir, '%(title).100s.%(ext)s'),  # 限制标题长度，避免路径问题
             'quiet': False,
             'no_warnings': False,
             'ignoreerrors': False,
@@ -114,15 +114,16 @@ async def download_youtube_video(url: str) -> str:
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             video_title = info.get('title', 'unknown_title')
-            video_path = os.path.join(temp_dir, f"{video_title}.mp4")
             
-            # 如果文件不存在，尝试其他扩展名
-            if not os.path.exists(video_path):
-                for ext in ['webm', 'mkv', 'avi']:
-                    alt_path = os.path.join(temp_dir, f"{video_title}.{ext}")
-                    if os.path.exists(alt_path):
-                        video_path = alt_path
-                        break
+            # 查找下载的文件
+            video_path = None
+            for file in os.listdir(temp_dir):
+                if file.endswith(('.mp4', '.webm', '.mkv', '.avi')):
+                    video_path = os.path.join(temp_dir, file)
+                    break
+            
+            if not video_path:
+                raise Exception("未找到下载的视频文件")
             
             # 获取视频信息
             logger.info(f"视频已下载: {video_path}")
@@ -446,5 +447,40 @@ async def root():
     }
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    import argparse
+    import sys
+    
+    # 检查是否有命令行参数
+    if len(sys.argv) > 1:
+        # 命令行模式
+        parser = argparse.ArgumentParser(description="YouTube视频下载工具")
+        parser.add_argument("--url", required=True, help="YouTube视频URL")
+        parser.add_argument("--quality", default="best", help="视频质量")
+        parser.add_argument("--output_dir", default="videos", help="输出目录")
+        parser.add_argument("--download_type", default="default", help="下载类型: default, type1, type2")
+        
+        args = parser.parse_args()
+        
+        # 创建输出目录
+        os.makedirs(args.output_dir, exist_ok=True)
+        
+        # 执行下载
+        async def main():
+            try:
+                video_path = await download_youtube_video(args.url)
+                # 移动文件到输出目录
+                filename = os.path.basename(video_path)
+                target_path = os.path.join(args.output_dir, filename)
+                shutil.move(video_path, target_path)
+                print(f"视频已下载到: {target_path} (类型: {args.download_type})")
+                return 0
+            except Exception as e:
+                print(f"下载失败: {e}")
+                return 1
+        
+        exit_code = asyncio.run(main())
+        sys.exit(exit_code)
+    else:
+        # API服务模式
+        import uvicorn
+        uvicorn.run(app, host="0.0.0.0", port=8000) 
