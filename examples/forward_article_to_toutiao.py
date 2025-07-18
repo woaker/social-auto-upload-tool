@@ -27,11 +27,25 @@ import argparse
 import traceback
 import math
 import random
+import logging
+import types
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from uploader.toutiao_uploader.main_final import TouTiaoArticle, toutiao_setup
+
+logger = logging.getLogger("toutiao_forward")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    from logging.handlers import RotatingFileHandler
+    handler = RotatingFileHandler("/Users/yongjun.xiao/Downloads/workspace/python/social-auto-upload/logs/toutiao_forward_debug.log", maxBytes=5*1024*1024, backupCount=2)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+logger.info(f"当前工作目录: {os.getcwd()}")
+logger.info(f"logs 目录是否存在: {os.path.exists('logs')}")
 
 class WechatSyncStyleFormatter:
     """优化版格式化器 - 解决空行过多、代码块显示和markdown渲染问题"""
@@ -1170,7 +1184,7 @@ class EnhancedArticleForwarder:
             
             title, content, tags = extractor(soup, url)
             
-            print(f"✅ 文章获取成功:")
+            print(f"✅ 文章获取成功: 标题={title}, 标签={tags}, 内容长度={len(content) if content else 0}")
             print(f"📝 标题: {title}")
             print(f"📊 内容长度: {len(content)} 字符")
             print(f"🏷️ 标签: {tags}")
@@ -2117,35 +2131,30 @@ class AIContentEnhancer:
 async def forward_article_from_url(url, account_file="cookiesFile/toutiao_cookie.json", save_file=True):
     """从URL转发文章到今日头条"""
     try:
-        # 检查登录状态
-        print("🔐 检查登录状态...")
+        logger.info(f"🔐 检查登录状态... account_file={account_file}")
         if not await toutiao_setup(account_file):
-            print("❌ 登录状态失效，请重新登录")
-            print("提示: 运行 python examples/login_toutiao.py 重新登录")
+            logger.error("❌ 登录状态失效，请重新登录")
+            logger.error("提示: 运行 python examples/login_toutiao.py 重新登录")
             return None
-        print("✅ 登录状态正常")
+        logger.info("✅ 登录状态正常")
         
-        # 创建转发器
         forwarder = EnhancedArticleForwarder()
-        
-        # 获取文章内容
-        print(f"🌐 正在获取文章: {url}")
-        title, content, tags = await forwarder.fetch_article(url)
+        logger.info("准备获取文章内容")
+        try:
+            title, content, tags = await forwarder.fetch_article(url)
+        except Exception as e:
+            logger.error(f"fetch_article 异常: {e}", exc_info=True)
+        logger.info("fetch_article 执行完毕")
+        logger.info(f"获取结果: title={title}, content={content}, tags={tags}")
         
         if not title or not content:
-            print("❌ 文章获取失败")
+            logger.error("❌ 文章获取失败")
             return None
-            
-        print("✅ 文章获取成功:")
-        print(f"📝 标题: {title}")
-        print(f"📊 内容长度: {len(content)} 字符")
-        print(f"🏷️ 标签: {tags}")
         
-        # 保存文章（可选）
         if save_file:
             file_path = forwarder.save_article_file(title, content, tags, url)
             if file_path:
-                print(f"💾 文章已保存: {file_path}")
+                logger.info(f"💾 文章已保存: {file_path}")
         
         return {
             'title': title,
@@ -2154,40 +2163,27 @@ async def forward_article_from_url(url, account_file="cookiesFile/toutiao_cookie
         }
         
     except Exception as e:
-        print(f"❌ 获取文章失败: {str(e)}")
+        logger.error(f"❌ 获取文章失败: {str(e)}", exc_info=True)
         return None
 
 async def publish_article_to_toutiao(title, content, tags, url, account_file="cookiesFile/toutiao_cookie.json"):
-    """发布文章到今日头条"""
-    print(f"\n⚠️ 即将转发文章到今日头条:")
-    print(f"📰 标题: {title}")
-    print(f"📊 内容长度: {len(content)} 字符")
-    print(f"🏷️ 标签: {tags}")
-    print(f"🔗 来源: {url}")
-    print(f"🎨 排版: 已启用增强排版模式")
-    print(f"🔄 格式: Markdown → 富文本格式")
-    print(f"🔒 验证码: 如遇验证码将等待用户输入")
-    
-    # 自动确认转发，不再需要用户输入y
-    print("\n📋 自动确认转发")
-    print("⚠️ 注意: 如遇验证码，请在浏览器中手动输入")
-    
-    # 创建转发器
-    forwarder = EnhancedArticleForwarder()
-    
-    # 转发到今日头条
-    print("🚀 开始发布到今日头条...")
-    success = await forwarder.forward_to_toutiao(title, content, tags, url, account_file)
-    
-    if success:
-        print("\n🎉 文章转发完成！")
-        print("📱 请登录今日头条查看发布结果")
-        print("✨ 排版已优化，阅读体验更佳")
-        print("🔄 内容已转换为富文本格式，无HTML代码")
-    else:
-        print("\n❌ 文章转发失败")
-    
-    return success
+    try:
+        logger.info(f"⚠️ 即将转发文章到今日头条: 标题={title}, 标签={tags}, 来源={url}")
+        logger.info(f"🎨 排版: 已启用增强排版模式, 🔄 格式: Markdown → 富文本格式")
+        logger.info(f"🔒 验证码: 如遇验证码将等待用户输入")
+        forwarder = EnhancedArticleForwarder()
+        logger.info("🚀 开始发布到今日头条... 准备调用forward_to_toutiao")
+        logger.info("调用forward_to_toutiao前")
+        success = await forwarder.forward_to_toutiao(title, content, tags, url, account_file)
+        logger.info(f"调用forward_to_toutiao后，结果: {success}")
+        if success:
+            logger.info("🎉 文章转发完成！请登录今日头条查看发布结果")
+        else:
+            logger.error("❌ 文章转发失败")
+        return success
+    except Exception as e:
+        logger.error(f"❌ 发布文章到头条异常: {str(e)}", exc_info=True)
+        return False
 
 async def main():
     """主函数"""
