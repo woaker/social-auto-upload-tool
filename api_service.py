@@ -54,6 +54,10 @@ class YouTubeDownloadRequest(BaseModel):
     url: List[str]
     quality: str = "best"
     output_dir: str = "videos"
+    platforms: List[str] = ["douyin", "bilibili", "kuaishou", "xiaohongshu", "baijiahao"]
+    title: Optional[str] = None
+    tags: List[str] = ["MCP", "AI", "互联网", "自动化", "技术"]
+    schedule_time: Optional[str] = None
 
 class YouTubeDownloadResponse(BaseModel):
     task_id: str
@@ -131,10 +135,10 @@ async def get_toutiao_accounts():
         logger.error(f"获取头条账号失败: {e}")
         raise HTTPException(status_code=500, detail="获取账号失败")
 
-# YouTube视频下载接口
+# YouTube视频下载和上传接口
 @app.post("/api/youtube/download", response_model=YouTubeDownloadResponse)
 async def download_youtube_video(request: YouTubeDownloadRequest):
-    """下载YouTube视频"""
+    """下载YouTube视频并上传到指定平台"""
     if len(request.url) == 0:
         raise HTTPException(status_code=400, detail="URL列表不能为空")
     
@@ -265,15 +269,23 @@ async def youtube_task_worker():
 async def process_toutiao_forward(task_id: str, data: dict):
     """处理头条文章转发任务"""
     try:
-        # 调用头条转发脚本
-        cmd = [
-            "python3", "examples/forward_article_to_toutiao.py",
-            "--urls", json.dumps(data["urls"]),
-            "--save_file", str(data["save_file"]),
-            "--account_file", data["account_file"],
-            "--use_ai", str(data["use_ai"]),
-            "--default_tags", json.dumps(data["default_tags"])
-        ]
+        # 获取URL（只取第一个URL，因为脚本只支持单个URL）
+        url = data["urls"][0] if data["urls"] else ""
+        if not url:
+            task_status[task_id]["status"] = "error"
+            task_status[task_id]["message"] = "URL不能为空"
+            task_status[task_id]["completed_at"] = datetime.now().isoformat()
+            return
+        
+        # 构建命令参数
+        cmd = ["python3", "examples/forward_article_to_toutiao.py", url]
+        
+        # 添加可选参数
+        if not data.get("save_file", True):
+            cmd.append("--no-save")
+        
+        if not data.get("use_ai", True):
+            cmd.append("--no-ai")
         
         logger.info(f"执行头条转发命令: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
@@ -298,22 +310,45 @@ async def process_toutiao_forward(task_id: str, data: dict):
         task_status[task_id]["completed_at"] = datetime.now().isoformat()
 
 async def process_youtube_download(task_id: str, data: dict):
-    """处理YouTube视频下载任务"""
+    """处理YouTube视频下载和上传任务"""
     try:
         urls = data["url"]
         results = []
         
         for url in urls:
-            # 调用YouTube下载脚本
+            # 构建请求数据
+            request_data = {
+                "url": [url],
+                "platforms": data.get("platforms", ["douyin", "bilibili", "kuaishou", "xiaohongshu", "baijiahao"]),
+                "title": data.get("title"),
+                "tags": data.get("tags", ["MCP", "AI", "互联网", "自动化", "技术"]),
+                "schedule_time": data.get("schedule_time")
+            }
+            
+            # 过滤掉None值
+            request_data = {k: v for k, v in request_data.items() if v is not None}
+            
+            # 调用YouTube API的完整功能（下载+上传）
             cmd = [
-                "python3", "youtube_api.py",
-                "--url", url,
-                "--quality", data["quality"],
-                "--output_dir", data["output_dir"]
+                "python3", "-c",
+                f"""
+import asyncio
+import sys
+import json
+sys.path.append('.')
+from youtube_api import process_youtube_video, YouTubeDownloadRequest
+
+async def main():
+    request = YouTubeDownloadRequest(**{json.dumps(request_data)})
+    await process_youtube_video('{task_id}', request)
+
+if __name__ == '__main__':
+    asyncio.run(main())
+                """
             ]
             
-            logger.info(f"执行YouTube下载命令: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            logger.info(f"执行YouTube下载+上传命令: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)  # 增加超时时间
             
             if result.returncode == 0:
                 results.append({
@@ -332,15 +367,16 @@ async def process_youtube_download(task_id: str, data: dict):
         success_count = sum(1 for r in results if r["status"] == "success")
         if success_count == len(urls):
             task_status[task_id]["status"] = "completed"
-            task_status[task_id]["message"] = f"所有视频下载成功 ({success_count}/{len(urls)})"
+            task_status[task_id]["message"] = f"所有视频下载并上传成功 ({success_count}/{len(urls)})"
         elif success_count > 0:
             task_status[task_id]["status"] = "completed"
-            task_status[task_id]["message"] = f"部分视频下载成功 ({success_count}/{len(urls)})"
+            task_status[task_id]["message"] = f"部分视频下载并上传成功 ({success_count}/{len(urls)})"
         else:
             task_status[task_id]["status"] = "error"
-            task_status[task_id]["message"] = "所有视频下载失败"
+            task_status[task_id]["message"] = "所有视频处理失败"
         
         task_status[task_id]["result"] = {"downloads": results}
+        task_status[task_id]["completed_at"] = datetime.now().isoformat()
             
     except subprocess.TimeoutExpired:
         task_status[task_id]["status"] = "error"
