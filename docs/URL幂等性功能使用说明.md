@@ -6,9 +6,9 @@
 
 ## 数据库表结构
 
-### tb_unquie 表
+### tb_unique 表
 ```sql
-CREATE TABLE tb_unquie (
+CREATE TABLE tb_unique (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     url TEXT NOT NULL,                    -- URL地址
     type TEXT NOT NULL,                   -- 处理类型 (youtube/juejin)

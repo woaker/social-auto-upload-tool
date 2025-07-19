@@ -28,7 +28,7 @@ class DatabaseManager:
             
             # 创建幂等性表
             cursor.execute('''
-                CREATE TABLE IF NOT EXISTS tb_unquie (
+                CREATE TABLE IF NOT EXISTS tb_unique (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     url TEXT NOT NULL,
                     type TEXT NOT NULL,
@@ -63,7 +63,7 @@ class DatabaseManager:
             cursor = conn.cursor()
             
             cursor.execute(
-                "SELECT id FROM tb_unquie WHERE url = ? AND type = ?",
+                "SELECT id FROM tb_unique WHERE url = ? AND type = ?",
                 (url, type)
             )
             
@@ -99,7 +99,7 @@ class DatabaseManager:
             
             # 使用INSERT OR REPLACE来处理唯一性约束
             cursor.execute('''
-                INSERT OR REPLACE INTO tb_unquie (url, type, task_id, update_time)
+                INSERT OR REPLACE INTO tb_unique (url, type, task_id, update_time)
                 VALUES (?, ?, ?, ?)
             ''', (url, type, task_id, datetime.now().isoformat()))
             
@@ -129,11 +129,11 @@ class DatabaseManager:
             
             if type:
                 cursor.execute(
-                    "SELECT * FROM tb_unquie WHERE type = ? ORDER BY create_time DESC",
+                    "SELECT * FROM tb_unique WHERE type = ? ORDER BY create_time DESC",
                     (type,)
                 )
             else:
-                cursor.execute("SELECT * FROM tb_unquie ORDER BY create_time DESC")
+                cursor.execute("SELECT * FROM tb_unique ORDER BY create_time DESC")
             
             results = cursor.fetchall()
             conn.close()
@@ -168,16 +168,16 @@ class DatabaseManager:
             cursor = conn.cursor()
             
             # 总记录数
-            cursor.execute("SELECT COUNT(*) FROM tb_unquie")
+            cursor.execute("SELECT COUNT(*) FROM tb_unique")
             total_count = cursor.fetchone()[0]
             
             # 按类型统计
-            cursor.execute("SELECT type, COUNT(*) FROM tb_unquie GROUP BY type")
+            cursor.execute("SELECT type, COUNT(*) FROM tb_unique GROUP BY type")
             type_stats = dict(cursor.fetchall())
             
             # 今日新增
             cursor.execute('''
-                SELECT COUNT(*) FROM tb_unquie 
+                SELECT COUNT(*) FROM tb_unique 
                 WHERE DATE(create_time) = DATE('now')
             ''')
             today_count = cursor.fetchone()[0]
