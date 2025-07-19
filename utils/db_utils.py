@@ -16,7 +16,7 @@ from utils.log import logger
 class DatabaseManager:
     """数据库管理器"""
     
-    def __init__(self, db_file: str = './database.db'):
+    def __init__(self, db_file: str = './db/database.db'):
         self.db_file = db_file
         self._ensure_table_exists()
     
