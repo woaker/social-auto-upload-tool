@@ -85,8 +85,8 @@ async def root():
 @app.post("/api/toutiao/forward", response_model=ToutiaoForwardResponse)
 async def forward_article_to_toutiao(request: ToutiaoForwardRequest):
     """将文章转发到今日头条"""
-    if len(request.urls) != 1:
-        raise HTTPException(status_code=400, detail="单次仅支持1个URL")
+    if len(request.urls) == 0:
+        raise HTTPException(status_code=400, detail="URL列表不能为空")
     
     task_id = str(uuid.uuid4())
     task_status[task_id] = {
@@ -269,36 +269,50 @@ async def youtube_task_worker():
 async def process_toutiao_forward(task_id: str, data: dict):
     """处理头条文章转发任务"""
     try:
-        # 获取URL（只取第一个URL，因为脚本只支持单个URL）
-        url = data["urls"][0] if data["urls"] else ""
-        if not url:
-            task_status[task_id]["status"] = "error"
-            task_status[task_id]["message"] = "URL不能为空"
-            task_status[task_id]["completed_at"] = datetime.now().isoformat()
-            return
+        urls = data["urls"]
+        results = []
         
-        # 构建命令参数
-        cmd = ["python3", "examples/forward_article_to_toutiao.py", url]
+        for url in urls:
+            # 构建命令参数
+            cmd = ["python3", "examples/forward_article_to_toutiao.py", url]
+            
+            # 添加可选参数
+            if not data.get("save_file", True):
+                cmd.append("--no-save")
+            
+            if not data.get("use_ai", True):
+                cmd.append("--no-ai")
+            
+            logger.info(f"执行头条转发命令: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            
+            if result.returncode == 0:
+                results.append({
+                    "url": url,
+                    "status": "success",
+                    "output": result.stdout
+                })
+            else:
+                results.append({
+                    "url": url,
+                    "status": "error",
+                    "error": result.stderr
+                })
         
-        # 添加可选参数
-        if not data.get("save_file", True):
-            cmd.append("--no-save")
-        
-        if not data.get("use_ai", True):
-            cmd.append("--no-ai")
-        
-        logger.info(f"执行头条转发命令: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-        
-        if result.returncode == 0:
+        # 检查整体结果
+        success_count = sum(1 for r in results if r["status"] == "success")
+        if success_count == len(urls):
             task_status[task_id]["status"] = "completed"
-            task_status[task_id]["message"] = "转发成功"
-            task_status[task_id]["result"] = {"output": result.stdout}
-            task_status[task_id]["completed_at"] = datetime.now().isoformat()
+            task_status[task_id]["message"] = f"所有文章转发成功 ({success_count}/{len(urls)})"
+        elif success_count > 0:
+            task_status[task_id]["status"] = "completed"
+            task_status[task_id]["message"] = f"部分文章转发成功 ({success_count}/{len(urls)})"
         else:
             task_status[task_id]["status"] = "error"
-            task_status[task_id]["message"] = f"转发失败: {result.stderr}"
-            task_status[task_id]["completed_at"] = datetime.now().isoformat()
+            task_status[task_id]["message"] = "所有文章处理失败"
+        
+        task_status[task_id]["result"] = {"forwarded_articles": results}
+        task_status[task_id]["completed_at"] = datetime.now().isoformat()
             
     except subprocess.TimeoutExpired:
         task_status[task_id]["status"] = "error"
