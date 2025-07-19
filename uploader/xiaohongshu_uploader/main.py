@@ -65,7 +65,7 @@ async def xiaohongshu_cookie_gen(account_file):
 
 
 class XiaoHongShuVideo(object):
-    def __init__(self, title, file_path, tags, publish_date: datetime, account_file, thumbnail_path=None, location="上海市"):
+    def __init__(self, title, file_path, tags, publish_date: datetime, account_file, thumbnail_path=None, location="上海市第一中学"):
         self.title = title  # 视频标题
         self.file_path = file_path
         self.tags = tags

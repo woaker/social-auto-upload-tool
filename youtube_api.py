@@ -276,7 +276,7 @@ async def upload_to_platforms(video_info: Dict[str, Any], platforms: List[str], 
                                     thumbnail_path=target_thumbnail
                                 )
                                 # 设置默认地理位置
-                                app.default_location = "上海市"
+                                app.default_location = "上海市第一中学"
                                 await app.main()
                                 logger.info(f"抖音视频上传完成: {video_file.name}")
                     except Exception as e:
@@ -319,7 +319,7 @@ async def upload_to_platforms(video_info: Dict[str, Any], platforms: List[str], 
                                         thumbnail_path=target_thumbnail
                                     )
                                     # 设置默认地理位置
-                                    app.default_location = "上海市"
+                                    app.default_location = "上海市第一中学"
                                     await app.main()
                                     logger.info(f"抖音视频上传完成: {video_file.name}")
                         else:

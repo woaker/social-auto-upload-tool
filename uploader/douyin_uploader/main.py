@@ -84,7 +84,7 @@ class DouYinVideo(object):
         self.date_format = '%Y年%m月%d日 %H:%M'
         self.local_executable_path = LOCAL_CHROME_PATH
         self.thumbnail_path = thumbnail_path
-        self.default_location = "上海市"  # 默认地理位置
+        self.default_location = "上海市第一中学"  # 默认地理位置
 
     async def set_schedule_time_douyin(self, page, publish_date):
         # 选择包含特定文本内容的 label 元素
@@ -375,7 +375,7 @@ class DouYinVideo(object):
         await context.close()
         await browser.close()
     
-    async def set_location(self, page: Page, location: str = "上海市"):
+    async def set_location(self, page: Page, location: str = "上海市第一中学"):
         """设置地理位置，如果失败则跳过"""
         try:
             douyin_logger.info(f"  [-] 正在设置地理位置: {location}")
