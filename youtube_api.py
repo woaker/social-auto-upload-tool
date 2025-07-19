@@ -34,6 +34,7 @@ from utils.log import douyin_logger
 from utils.video_converter import convert_video_if_needed, extract_video_thumbnail
 from batch_upload_by_date import BatchUploader
 from uploader.douyin_uploader.main import DouYinVideo
+from utils.db_utils import db_manager
 
 # 配置日志
 log_dir = os.path.join(BASE_DIR, "logs")
@@ -279,6 +280,16 @@ async def upload_to_platforms(video_info: Dict[str, Any], platforms: List[str], 
                                 app.default_location = "上海市第一中学"
                                 await app.main()
                                 logger.info(f"抖音视频上传完成: {video_file.name}")
+                                # 记录到数据库
+                                db_manager.insert_douyin_video(
+                                    video_id=str(uuid.uuid4()), # 生成新的视频ID
+                                    video_name=title,
+                                    video_path=str(video_file),
+                                    thumbnail_path=target_thumbnail,
+                                    tags=tags,
+                                    publish_date=uploader.get_publish_schedule(1)[0] if enable_schedule else None,
+                                    created_at=datetime.now()
+                                )
                     except Exception as e:
                         logger.error(f"抖音上传失败: {e}")
                         results['douyin'] = {"status": "failed", "message": str(e)}
@@ -322,6 +333,16 @@ async def upload_to_platforms(video_info: Dict[str, Any], platforms: List[str], 
                                     app.default_location = "上海市第一中学"
                                     await app.main()
                                     logger.info(f"抖音视频上传完成: {video_file.name}")
+                                    # 记录到数据库
+                                    db_manager.insert_douyin_video(
+                                        video_id=str(uuid.uuid4()), # 生成新的视频ID
+                                        video_name=title,
+                                        video_path=str(video_file),
+                                        thumbnail_path=target_thumbnail,
+                                        tags=tags,
+                                        publish_date=uploader.get_publish_schedule(1)[0] if enable_schedule else None,
+                                        created_at=datetime.now()
+                                    )
                         else:
                             # 其他平台使用通用上传方法
                             await uploader.upload_to_platform(platform, video_files)
@@ -354,29 +375,95 @@ async def process_youtube_video(task_id: str, request: YouTubeDownloadRequest):
         task_status[task_id] = {"status": "downloading", "message": "正在下载YouTube视频"}
         
         all_results = {}
+        processed_count = 0
+        skipped_count = 0
         
         # 处理每个URL
         for url in request.url:
-            # 下载YouTube视频
-            video_path = await download_youtube_video(str(url))
-            
-            # 准备视频上传
-            task_status[task_id] = {"status": "processing", "message": f"正在处理视频: {url}"}
-            video_info = await prepare_video_for_upload(video_path, request.title, request.tags)
-            
-            # 上传到各平台
-            task_status[task_id] = {"status": "uploading", "message": f"正在上传视频到各平台: {url}"}
-            results = await upload_to_platforms(video_info, request.platforms, request.schedule_time)
-            
-            # 将结果添加到总结果中
-            url_key = str(url)
-            all_results[url_key] = results
+            try:
+                logger.info(f"🔍 开始处理视频: {url}")
+                
+                # 检查幂等性 - 如果URL已经处理过，跳过
+                if db_manager.is_url_processed(str(url), "youtube"):
+                    logger.warning(f"⏭️ 跳过已处理的URL: {url}")
+                    url_key = str(url)
+                    all_results[url_key] = {
+                        "status": "skipped", 
+                        "message": "URL已处理过，跳过重复处理"
+                    }
+                    skipped_count += 1
+                    continue
+                
+                # 下载YouTube视频
+                video_path = await download_youtube_video(str(url))
+                
+                # 准备视频上传
+                task_status[task_id] = {"status": "processing", "message": f"正在处理视频: {url}"}
+                video_info = await prepare_video_for_upload(video_path, request.title, request.tags)
+                
+                # 上传到各平台
+                task_status[task_id] = {"status": "uploading", "message": f"正在上传视频到各平台: {url}"}
+                results = await upload_to_platforms(video_info, request.platforms, request.schedule_time)
+                
+                # 检查抖音平台是否上传成功
+                douyin_success = False
+                if "douyin" in results and results["douyin"].get("status") == "success":
+                    douyin_success = True
+                    # 标记URL为已处理
+                    db_manager.mark_url_processed(str(url), "youtube", task_id)
+                    logger.info(f"✅ YouTube视频抖音上传成功，已记录到数据库: {url}")
+                
+                # 将结果添加到总结果中
+                url_key = str(url)
+                all_results[url_key] = results
+                processed_count += 1
+                
+                logger.info(f"✅ 视频处理完成: {url}")
+                
+            except ValueError as e:
+                # 处理视频时长超限异常
+                if "视频时长超过30分钟限制" in str(e):
+                    logger.warning(f"⏰ 跳过超长视频: {url} - {e}")
+                    url_key = str(url)
+                    all_results[url_key] = {
+                        "status": "skipped", 
+                        "message": f"视频时长超过30分钟限制，已跳过: {e}"
+                    }
+                    skipped_count += 1
+                else:
+                    # 其他ValueError异常
+                    logger.error(f"❌ 视频处理失败: {url} - {e}")
+                    url_key = str(url)
+                    all_results[url_key] = {"status": "failed", "message": str(e)}
+                    
+            except Exception as e:
+                # 处理其他异常
+                logger.error(f"❌ 视频处理失败: {url} - {e}")
+                url_key = str(url)
+                all_results[url_key] = {"status": "failed", "message": str(e)}
+        
+        # 生成总结消息
+        total_videos = len(request.url)
+        if processed_count > 0 and skipped_count > 0:
+            summary_message = f"处理完成: {processed_count}/{total_videos} 个视频成功，{skipped_count} 个视频因时长超限或已处理跳过"
+        elif processed_count > 0:
+            summary_message = f"处理完成: {processed_count}/{total_videos} 个视频成功"
+        elif skipped_count > 0:
+            summary_message = f"处理完成: {skipped_count}/{total_videos} 个视频因时长超限或已处理跳过"
+        else:
+            summary_message = "处理完成: 所有视频处理失败"
         
         # 更新任务状态
         task_status[task_id] = {
             "status": "completed", 
-            "message": "处理完成", 
-            "results": all_results
+            "message": summary_message, 
+            "results": all_results,
+            "statistics": {
+                "total": total_videos,
+                "processed": processed_count,
+                "skipped": skipped_count,
+                "failed": total_videos - processed_count - skipped_count
+            }
         }
         
     except Exception as e:

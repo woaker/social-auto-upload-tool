@@ -1,16 +1,24 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
 import asyncio
 import subprocess
-import json
-import os
 import uuid
 from datetime import datetime
-import logging
+from typing import Dict, Any, List, Optional
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+import os
+import sys
+import sqlite3
+
+# 添加项目根目录到路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(current_dir)
+
+from utils.log import logger
+from utils.db_utils import db_manager
 
 # 配置日志
+import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -213,7 +221,98 @@ async def get_all_task_logs():
         logger.error(f"获取任务日志失败: {e}")
         raise HTTPException(status_code=500, detail="获取任务日志失败")
 
+# 幂等性统计信息接口
+@app.get("/api/idempotency/stats")
+async def get_idempotency_stats():
+    """获取幂等性处理统计信息"""
+    try:
+        stats = db_manager.get_processing_stats()
+        return {
+            "success": True,
+            "data": stats
+        }
+    except Exception as e:
+        logger.error(f"获取幂等性统计失败: {e}")
+        raise HTTPException(status_code=500, detail="获取统计信息失败")
 
+# 已处理URL列表接口
+@app.get("/api/idempotency/urls")
+async def get_processed_urls(type: str = None, limit: int = 100):
+    """获取已处理的URL列表"""
+    try:
+        urls = db_manager.get_processed_urls(type)
+        # 限制返回数量
+        if limit and len(urls) > limit:
+            urls = urls[:limit]
+        
+        return {
+            "success": True,
+            "data": {
+                "total": len(urls),
+                "urls": urls
+            }
+        }
+    except Exception as e:
+        logger.error(f"获取已处理URL列表失败: {e}")
+        raise HTTPException(status_code=500, detail="获取URL列表失败")
+
+# 检查URL是否已处理接口
+@app.get("/api/idempotency/check/{url:path}")
+async def check_url_processed(url: str, type: str):
+    """检查指定URL是否已处理"""
+    try:
+        is_processed = db_manager.is_url_processed(url, type)
+        return {
+            "success": True,
+            "data": {
+                "url": url,
+                "type": type,
+                "is_processed": is_processed
+            }
+        }
+    except Exception as e:
+        logger.error(f"检查URL状态失败: {e}")
+        raise HTTPException(status_code=500, detail="检查URL状态失败")
+
+# 根据task_id查询URL记录接口
+@app.get("/api/idempotency/task/{task_id}")
+async def get_urls_by_task_id(task_id: str):
+    """根据task_id查询URL记录"""
+    try:
+        conn = sqlite3.connect('./database.db')
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT * FROM tb_unquie WHERE task_id = ? ORDER BY create_time DESC",
+            (task_id,)
+        )
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        # 转换为字典列表
+        records = []
+        for row in results:
+            records.append({
+                "id": row[0],
+                "url": row[1],
+                "type": row[2],
+                "task_id": row[3],
+                "create_time": row[4],
+                "update_time": row[5]
+            })
+        
+        return {
+            "success": True,
+            "data": {
+                "task_id": task_id,
+                "total": len(records),
+                "records": records
+            }
+        }
+    except Exception as e:
+        logger.error(f"根据task_id查询URL记录失败: {e}")
+        raise HTTPException(status_code=500, detail="查询URL记录失败")
 
 # 后台任务处理器
 async def toutiao_task_worker():
@@ -271,32 +370,66 @@ async def process_toutiao_forward(task_id: str, data: dict):
     try:
         urls = data["urls"]
         results = []
+        processed_count = 0
+        skipped_count = 0
         
         for url in urls:
-            # 构建命令参数
-            cmd = ["python3", "examples/forward_article_to_toutiao.py", url]
-            
-            # 添加可选参数
-            if not data.get("save_file", True):
-                cmd.append("--no-save")
-            
-            if not data.get("use_ai", True):
-                cmd.append("--no-ai")
-            
-            logger.info(f"执行头条转发命令: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-            
-            if result.returncode == 0:
-                results.append({
-                    "url": url,
-                    "status": "success",
-                    "output": result.stdout
-                })
-            else:
+            try:
+                logger.info(f"🔍 开始处理文章: {url}")
+                
+                # 检查幂等性 - 如果URL已经处理过，跳过
+                if db_manager.is_url_processed(url, "juejin"):
+                    logger.warning(f"⏭️ 跳过已处理的URL: {url}")
+                    results.append({
+                        "url": url,
+                        "status": "skipped",
+                        "message": "URL已处理过，跳过重复处理"
+                    })
+                    skipped_count += 1
+                    continue
+                
+                # 构建命令参数
+                cmd = ["python3", "examples/forward_article_to_toutiao.py", url]
+                
+                # 添加可选参数
+                if not data.get("save_file", True):
+                    cmd.append("--no-save")
+                
+                if not data.get("use_ai", True):
+                    cmd.append("--no-ai")
+                
+                logger.info(f"执行头条转发命令: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                
+                if result.returncode == 0:
+                    # 标记URL为已处理
+                    db_manager.mark_url_processed(url, "juejin", task_id)
+                    logger.info(f"✅ 文章转发成功，已记录到数据库: {url}")
+                    
+                    results.append({
+                        "url": url,
+                        "status": "success",
+                        "output": result.stdout
+                    })
+                    processed_count += 1
+                else:
+                    results.append({
+                        "url": url,
+                        "status": "error",
+                        "error": result.stderr
+                    })
+                    
+            except subprocess.TimeoutExpired:
                 results.append({
                     "url": url,
                     "status": "error",
-                    "error": result.stderr
+                    "error": "任务超时"
+                })
+            except Exception as e:
+                results.append({
+                    "url": url,
+                    "status": "error",
+                    "error": f"处理异常: {str(e)}"
                 })
         
         # 检查整体结果
