@@ -74,14 +74,84 @@ start() {
 }
 
 stop() {
-    if [ -f "$PID_FILE" ] && kill -0 $(cat "$PID_FILE") 2>/dev/null; then
-        kill $(cat "$PID_FILE")
+    echo "🛑 正在停止所有服务..."
+    
+    # 停止API服务
+    if [ -f "$PID_FILE" ]; then
+        PID=$(cat "$PID_FILE")
+        if kill -0 $PID 2>/dev/null; then
+            echo "[API] 正在停止API服务 (PID: $PID)..."
+            kill $PID
+            sleep 2
+            if kill -0 $PID 2>/dev/null; then
+                echo "[API] 强制停止API服务..."
+                kill -9 $PID
+            fi
+            echo "[API] ✅ API服务已停止"
+        else
+            echo "[API] ⚠️ PID文件存在但进程不存在"
+        fi
         rm -f "$PID_FILE"
-        echo "[API] 服务已停止"
     else
-        echo "[API] 服务未在运行"
+        echo "[API] ℹ️ 未找到API服务PID文件"
     fi
-    stop_frp
+    
+    # 停止FRP客户端
+    if [ -f "$FRPC_PID_FILE" ]; then
+        PID=$(cat "$FRPC_PID_FILE")
+        if kill -0 $PID 2>/dev/null; then
+            echo "[FRP] 正在停止FRP客户端 (PID: $PID)..."
+            kill $PID
+            sleep 2
+            if kill -0 $PID 2>/dev/null; then
+                echo "[FRP] 强制停止FRP客户端..."
+                kill -9 $PID
+            fi
+            echo "[FRP] ✅ FRP客户端已停止"
+        else
+            echo "[FRP] ⚠️ PID文件存在但进程不存在"
+        fi
+        rm -f "$FRPC_PID_FILE"
+    else
+        echo "[FRP] ℹ️ 未找到FRP客户端PID文件"
+    fi
+    
+    # 停止头条API服务
+    if [ -f "toutiao_api.pid" ]; then
+        PID=$(cat "toutiao_api.pid")
+        if kill -0 $PID 2>/dev/null; then
+            echo "[TOUTIAO] 正在停止头条API服务 (PID: $PID)..."
+            kill $PID
+            sleep 2
+            if kill -0 $PID 2>/dev/null; then
+                echo "[TOUTIAO] 强制停止头条API服务..."
+                kill -9 $PID
+            fi
+            echo "[TOUTIAO] ✅ 头条API服务已停止"
+        else
+            echo "[TOUTIAO] ⚠️ PID文件存在但进程不存在"
+        fi
+        rm -f "toutiao_api.pid"
+    else
+        echo "[TOUTIAO] ℹ️ 未找到头条API服务PID文件"
+    fi
+    
+    # 查找并停止所有相关进程（备用方案）
+    echo "🔍 查找并停止所有相关进程..."
+    pkill -f "api_service.py" 2>/dev/null && echo "  ✅ 停止api_service.py进程"
+    pkill -f "frpc" 2>/dev/null && echo "  ✅ 停止frpc进程"
+    pkill -f "toutiao_api" 2>/dev/null && echo "  ✅ 停止toutiao_api进程"
+    
+    # 清理所有PID文件
+    echo "🧹 清理PID文件..."
+    rm -f *.pid
+    
+    echo "🎉 所有服务已停止！"
+    
+    # 显示当前状态
+    echo ""
+    echo "📊 当前状态检查："
+    ps aux | grep -E "(api_service|toutiao_api|frpc)" | grep -v grep || echo "  ✅ 没有相关进程在运行"
 }
 
 status() {
